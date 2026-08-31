@@ -32,6 +32,7 @@
 - All permission checks must exist server-side; hiding a UI element is a UX nicety, not a security control.
 - Burn-in runs server-side via pdf-lib — do not do a purely client-side burn-in.
 - All timestamps (F1–F3) are computed in UTC.
+- The `shares` table (`grantee_email`, `grantee_user_id`, `role: edit|view`, `granted_by`, `granted_at`) already exists as of `supabase/migrations/20250825000000_reconcile_shares.sql`, which superseded the differently-shaped `permissions` table from the original migration — task 4.1 only needs to add the endpoint/middleware logic against it, not recreate the table. See `agents/skills/database.md` for the confirmed schema.
 
 ## Instructions for Completing Tasks
 
@@ -82,7 +83,7 @@
   - [ ] 3.11 Write `tests/SaveModal.test.js`: test all three validation errors, the disabled state during save, and both toast messages.
 
 - [ ] 4.0 Permissions & Sharing — email-based grants, edit/view split, empty states
-  - [ ] 4.1 Write the Supabase migration `supabase/migrations/XXXXXXXXXXXXXX_pdf_editor.sql`: add a `shares` table with columns `attachment_id`, `grantee_email`, `grantee_user_id` (nullable — populated if the grantee is an existing user), `role` (enum: `edit` | `view`), `granted_by`, `granted_at`; add any missing columns to the existing attachments table (requirements P1–P5).
+  - [ ] 4.1 ~~Write the Supabase migration `supabase/migrations/XXXXXXXXXXXXXX_pdf_editor.sql`: add a `shares` table~~ — **done**, see `supabase/migrations/20250825000000_reconcile_shares.sql` (columns: `attachment_id`, `grantee_email`, `grantee_user_id`, `role: edit|view`, `granted_by`, `granted_at`). Confirm any missing columns on the existing `attachments` table are added separately if needed (requirements P1–P5).
   - [ ] 4.2 Run the migration with `npm run supabase:migrate` and confirm it applies cleanly.
   - [ ] 4.3 Create `server/middleware/permissions.js`: a middleware function that reads the current user's identity (from the auth token), looks up their role for the requested attachment, and sets `req.attachmentRole` to `edit`, `view`, or `none`; attach this middleware to all attachment-related routes.
   - [ ] 4.4 Add a server endpoint `POST /api/attachments/:id/shares` (owner only): accepts an email address and a role (`edit` | `view`), creates a share row, and resolves the email to an existing user ID if the email matches an existing user (requirement P1).

@@ -34,6 +34,8 @@
 - `tests/grants.test.js` - Unit tests for grant listing and revocation endpoints (WM2, WS3, R5).
 - `tests/workspace.api.test.js` - Integration tests: unauthenticated request → 401; view-only user → cannot mutate.
 
+
+
 ### Notes
 
 - Unit tests should be placed in the `tests/` directory, named after the file they test.
@@ -41,6 +43,8 @@
 - Supabase Auth handles email/password and Google OAuth — do not roll your own password hashing or token generation.
 - All auth state reads must go through the Supabase client; never trust client-supplied user IDs on the server — always read identity from the verified JWT.
 - The `shares` / permissions table is shared with the PDF editor PRD — do not create a second table; this project only adds `workspaces`, `folders`, and `folder_id`.
+
+
 
 ## Instructions for Completing Tasks
 
