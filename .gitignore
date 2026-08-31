@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# Build output
+dist/
+build/
+.vite/
+
+# Logs & OS
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE / local agent notes
+CLAUDE.local.md
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Test artifacts (keep fixtures, ignore generated output)
+tests/output/
+
+# Supabase local
+.supabase/

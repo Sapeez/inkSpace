@@ -1,0 +1,104 @@
+## Relevant Files
+
+- `src/components/PDFViewer/PDFViewer.jsx` - Main PDF viewer component (rendering, scroll, zoom, pan, fit-width).
+- `src/components/PDFViewer/ThumbnailPanel.jsx` - Thumbnails sidebar, open by default, showing all pages.
+- `src/components/PDFViewer/PageNavigator.jsx` - Page navigation controls (prev/next buttons, type-to-jump input).
+- `src/components/PDFViewer/PDFViewer.css` - Styles for the viewer layout.
+- `src/components/Annotator/AnnotationCanvas.jsx` - Fabric.js (or Konva.js) canvas overlay for all annotation drawing, selection, move, and resize.
+- `src/components/Annotator/Toolbar.jsx` - Annotation toolbar with all tools in the required left-to-right order.
+- `src/components/Annotator/StyleControls.jsx` - Global color, fill, and stroke-width controls.
+- `src/components/Annotator/DeleteConfirmModal.jsx` - Confirmation modal before deleting an annotation.
+- `src/components/Annotator/SignatureUploader.jsx` - Signature image upload and placement tool.
+- `src/components/SaveModal/SaveModal.jsx` - Save-as-new-attachment modal with filename field, validation, progress state, and toast feedback.
+- `src/components/ShareModal/ShareModal.jsx` - Email-based share/permission UI for owners.
+- `src/components/EmptyState/NoAccessState.jsx` - Empty state for no-permission or dead-link scenarios.
+- `src/utils/filenameUtils.js` - Timestamp generation, existing-timestamp detection/replacement, and filename validation logic (F1–F6).
+- `server/routes/attachments.js` - Backend endpoints: fetch attachment, burn-in annotations (pdf-lib), save as new attachment.
+- `server/routes/shares.js` - Backend endpoints: grant access by email, look up permission for a user, revoke access.
+- `server/middleware/permissions.js` - Middleware that enforces edit vs. view-only on every attachment endpoint.
+- `supabase/migrations/XXXXXXXXXXXXXX_pdf_editor.sql` - Schema additions: attachment table columns + permission/share table.
+- `tests/filenameUtils.test.js` - Unit tests for all filename/timestamp rules (F1–F6), including boundary cases.
+- `tests/PDFViewer.test.js` - Tests for viewer rendering, navigation, and zoom controls.
+- `tests/Annotator.test.js` - Tests for toolbar rendering, style controls, delete confirmation, and annotation CRUD.
+- `tests/SaveModal.test.js` - Tests for modal states, validation feedback, and toast messages.
+- `tests/permissions.test.js` - Unit tests for the server-side permission middleware.
+- `tests/permissions.api.test.js` - Integration tests that call the API directly as a low-privilege user to confirm server-side enforcement.
+
+### Notes
+
+- Unit tests should be placed in the `tests/` directory (the project convention), named after the file they test.
+- Use `npm test` to run the test suite (`node --test` — do not add Jest, Vitest, or Mocha).
+- Install pdf.js and Fabric.js (or Konva.js) as client dependencies; install pdf-lib as a server dependency.
+- All permission checks must exist server-side; hiding a UI element is a UX nicety, not a security control.
+- Burn-in runs server-side via pdf-lib — do not do a purely client-side burn-in.
+- All timestamps (F1–F3) are computed in UTC.
+
+## Instructions for Completing Tasks
+
+**IMPORTANT:** Check off each task as you complete it by changing `- [ ]` to `- [x]`. Update after each sub-task, not only after finishing a parent task.
+
+## Tasks
+
+- [ ] 1.0 PDF Viewer — render, scroll, thumbnails, zoom/pan, page navigation
+  - [ ] 1.1 Install `pdfjs-dist` (the npm package for pdf.js) as a client dependency.
+  - [ ] 1.2 Create `PDFViewer.jsx`: load a PDF from a signed URL, render pages to a `<canvas>` element using pdf.js, and show a visible loading indicator while the file is being fetched and rendered (requirement V2).
+  - [ ] 1.3 Implement continuous scroll: render pages one below the other in a scrollable container so the user can scroll through the whole document (requirement V1).
+  - [ ] 1.4 Create `ThumbnailPanel.jsx`: render small thumbnail previews of every page in a sidebar that is open by default; clicking a thumbnail scrolls the main view to that page (requirement V3).
+  - [ ] 1.5 Create `PageNavigator.jsx`: display the current page number, add previous/next buttons, and add a text input where the user can type a page number and press Enter to jump directly to it (requirement V4).
+  - [ ] 1.6 Add zoom in / zoom out controls that re-render pages at the new scale (requirement V5).
+  - [ ] 1.7 Add pan support so the user can drag the view when zoomed in (requirement V6).
+  - [ ] 1.8 Add a "Fit width" button that sets the zoom level so the page fills the viewer's width (requirement V7).
+  - [ ] 1.9 Confirm that print, search, and any other pdf.js default controls are hidden or disabled — these are explicitly out of scope (requirement V8).
+  - [ ] 1.10 Write `tests/PDFViewer.test.js`: test that the loading state appears, that navigation buttons work, and that the page-number input jumps to the correct page.
+
+- [ ] 2.0 Annotation Tools — full toolbar, global styling, select/move/resize/delete
+  - [ ] 2.1 Install `fabric` (Fabric.js) as a client dependency (or Konva.js — pick one and use it throughout).
+  - [ ] 2.2 Create `AnnotationCanvas.jsx`: layer a Fabric.js canvas on top of each rendered PDF page, keeping its own coordinate system normalized to PDF point space so annotations don't drift when the user zooms or scrolls (requirement A1, see Risk R1).
+  - [ ] 2.3 Create `Toolbar.jsx` with tools in this exact left-to-right order: Pen, Freeform Highlighter, Text, Text Highlighter, Ellipse (default shape), Rectangle, Line, Arrow, Cloud, Polygon, Signature (requirement A1). Show sensible default icons for each.
+  - [ ] 2.4 Implement the Pen tool: freehand drawing that produces a solid stroke (requirement A2, A3).
+  - [ ] 2.5 Implement the Freeform Highlighter tool: same as pen but renders as a semi-transparent colored stroke.
+  - [ ] 2.6 Implement the Text tool: click to place a text box the user can type into.
+  - [ ] 2.7 Implement the Text Highlighter tool: drag a rectangle that highlights the area beneath it.
+  - [ ] 2.8 Implement Ellipse, Rectangle, Line, and Arrow shape tools; Arrow should be one-sided (arrowhead on one end only); all outlines render as solid (requirement A2).
+  - [ ] 2.9 Implement the Cloud tool: a rectangle-based shape with a wavy/cloud border, positioned after the shape tools in the toolbar (requirement A7).
+  - [ ] 2.10 Create `StyleControls.jsx`: three controls — color picker (default red), fill toggle/picker (default transparent), and stroke-width input (default 4pt). These settings are global (one set for all tools), and changing them affects future annotations only — not existing ones unless re-selected (requirement A4).
+  - [ ] 2.11 Implement the Polygon tool: the user clicks to place vertices and closes the shape by clicking the first point.
+  - [ ] 2.12 Create `SignatureUploader.jsx`: a button that opens a file-picker restricted to image files; on upload, validate type and size (client-side), re-encode the image, then place it on the canvas at a default size the user can move and resize (requirements A8, R8).
+  - [ ] 2.13 Implement selection: clicking any placed annotation selects it and shows resize handles; the selected annotation can be dragged to a new position or resized by dragging a handle (requirement A5).
+  - [ ] 2.14 Create `DeleteConfirmModal.jsx`: triggered when the user presses Delete (or a delete button) on a selected annotation; modal title must be exactly "Delete annotation?" and body text "Are you sure you want to delete this annotation?" with Confirm and Cancel actions (requirement A6).
+  - [ ] 2.15 Write `tests/Annotator.test.js`: test that each tool can be activated, that the style controls update future annotations only, that the delete modal appears with the correct text, and that cancelling the modal does not remove the annotation.
+
+- [ ] 3.0 Download & Save as New Attachment — burn-in, filename rules, feedback states
+  - [ ] 3.1 Install `pdf-lib` as a server dependency.
+  - [ ] 3.2 Add a server endpoint `POST /api/attachments/:id/burn-in` that accepts the annotation data, uses pdf-lib to draw each annotation onto the original PDF's pages server-side, and returns the resulting PDF buffer (requirement S3, R4).
+  - [ ] 3.3 Add a server endpoint `POST /api/attachments` (or reuse the existing create endpoint) that accepts the burned-in PDF buffer and a filename, saves the file to Supabase Storage, creates a new attachment row in the database (never overwrites the original), and returns the new attachment's metadata (requirements S3, S7).
+  - [ ] 3.4 Create `src/utils/filenameUtils.js` with three exported functions: `generateDefaultFilename(existingName)` — appends a UTC timestamp in `<day><month><year><hour><minute>` format, or replaces an existing timestamp if the name already ends in one (requirements F1–F3); `validateFilename(name)` — returns an error string for empty, >255 chars, or invalid characters, otherwise null (requirements F4–F6).
+  - [ ] 3.5 Wire up the Download button in the viewer: call the burn-in endpoint with the current annotation data, receive the PDF, and trigger a browser download using the original attachment filename (requirements D1–D3).
+  - [ ] 3.6 Create `SaveModal.jsx`: opens when the user clicks Save; pre-fills the filename field using `generateDefaultFilename`; validates the field using `validateFilename` on change and on submit; shows inline error messages for each validation failure (requirements S1–S2, F4–F6).
+  - [ ] 3.7 On confirm in `SaveModal`: call the burn-in endpoint, then the save endpoint; while both are in flight, disable the filename field, Cancel button, and the X close control (visibly, not just functionally — requirement S5); show a progress indicator (requirement S4).
+  - [ ] 3.8 On save failure: display a toast with the exact text "Couldn't save <Attachment name>." (requirement S6). Leave the modal open (requirement S8).
+  - [ ] 3.9 On save success: display a toast with the exact text "<attachment name> saved successfully to workspace." (requirement S7). Leave the modal open (requirement S8).
+  - [ ] 3.10 Write `tests/filenameUtils.test.js`: cover boundary cases — empty string, exactly 255 chars, 256 chars, a name that already ends in a timestamp (confirm replacement, not append), invalid characters, and a valid name with no timestamp.
+  - [ ] 3.11 Write `tests/SaveModal.test.js`: test all three validation errors, the disabled state during save, and both toast messages.
+
+- [ ] 4.0 Permissions & Sharing — email-based grants, edit/view split, empty states
+  - [ ] 4.1 Write the Supabase migration `supabase/migrations/XXXXXXXXXXXXXX_pdf_editor.sql`: add a `shares` table with columns `attachment_id`, `grantee_email`, `grantee_user_id` (nullable — populated if the grantee is an existing user), `role` (enum: `edit` | `view`), `granted_by`, `granted_at`; add any missing columns to the existing attachments table (requirements P1–P5).
+  - [ ] 4.2 Run the migration with `npm run supabase:migrate` and confirm it applies cleanly.
+  - [ ] 4.3 Create `server/middleware/permissions.js`: a middleware function that reads the current user's identity (from the auth token), looks up their role for the requested attachment, and sets `req.attachmentRole` to `edit`, `view`, or `none`; attach this middleware to all attachment-related routes.
+  - [ ] 4.4 Add a server endpoint `POST /api/attachments/:id/shares` (owner only): accepts an email address and a role (`edit` | `view`), creates a share row, and resolves the email to an existing user ID if the email matches an existing user (requirement P1).
+  - [ ] 4.5 Update the burn-in and save endpoints (from Task 3) to reject requests where `req.attachmentRole !== 'edit'` — return 403 (requirement P2, R4).
+  - [ ] 4.6 Create `ShareModal.jsx`: a modal the attachment owner can open; lets them type an email address, choose edit or view access, and submit; displays the current list of shares and allows revoking them (requirement P1).
+  - [ ] 4.7 In the viewer, check the current user's role before rendering: if `view`, hide all annotation tools and the Save button, and show the "notes" annotation control instead (a simple text-note control distinct from the editor's annotation tools) (requirements P3–P4).
+  - [ ] 4.8 Create `NoAccessState.jsx`: shown when the user opens an attachment they have no permission to view, or the attachment doesn't exist; display a clear, non-broken message explaining the access issue (not a blank screen or generic error) (requirement P5).
+  - [ ] 4.9 Wire `NoAccessState` into the viewer route: if the API returns 403 or 404 for an attachment, render `NoAccessState` instead of the viewer.
+  - [ ] 4.10 Write `tests/permissions.test.js`: unit-test the `permissions.js` middleware with a mock request for each of the three roles (edit, view, none).
+  - [ ] 4.11 Write `tests/permissions.api.test.js`: integration tests that call the burn-in and save endpoints directly (not via the UI) using a view-only auth token and confirm a 403 is returned — this verifies server-side enforcement independent of what the UI shows (Risk R4).
+
+- [ ] 5.0 Hardening Pass — out-of-scope enforcement, performance, security review
+  - [ ] 5.1 Go through the out-of-scope list (PRD section 3.4) and confirm none of the following exist in the shipped UI or API: print, search, per-annotation styling, a notes/comment tool for editors, cover pages, stamps, callouts, redaction, non-PDF attachment support, direct PDF content editing, OCR, form-filling, real-time co-editing, cross-session undo, page reorder/rotate (requirement DoD #6).
+  - [ ] 5.2 Add virtualized/progressive page rendering: only render the pages currently visible in the viewport (plus a small buffer); render remaining pages lazily as the user scrolls, so large documents don't block on full-document load (Risk R2).
+  - [ ] 5.3 Enforce a file-size limit on PDF upload and on signature image upload — validate and reject oversized files both client-side (instant feedback) and server-side (authoritative); surface the limit clearly to the user rather than silently failing (Risk R2, R8).
+  - [ ] 5.4 Add a visual-diff smoke check: render the same annotation (e.g., a red rectangle) at fit-width, 100%, and 200% zoom, then compare its position in the burned PDF to its on-screen position to confirm there is no coordinate drift (Risk R1, Success Metric "Burn-in fidelity").
+  - [ ] 5.5 Review all server endpoints for missing or bypassable permission checks — confirm every route that mutates an attachment or share is gated by the `permissions.js` middleware and returns 403 (not 200 or 404) for unauthorized callers.
+  - [ ] 5.6 Confirm signature image uploads are re-encoded server-side (not stored and served as the raw uploaded file) to prevent malicious file disguised as an image (Risk R8).
+  - [ ] 5.7 Run `npm test` and confirm all tests pass with no failures before marking this task complete.

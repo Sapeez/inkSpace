@@ -1,0 +1,48 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+}
+
+.viewer-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.toolbar {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.annotation-canvas {
+  flex: 1;
+  background: #f9fafb;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 40%);
+}
+
+.modal {
+  background: #fff;
+  padding: 1.5rem;
+  border-radius: 8px;
+  min-width: 320px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
