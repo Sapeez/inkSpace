@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "start": "node server/index.js",
     "test": "node --test tests/**/*.test.js",
+    "typecheck": "tsc --noEmit",
     "supabase:migrate": "supabase db push"
   },
   "dependencies": {
@@ -26,6 +27,7 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
+    "typescript": "^5.7.2",
     "vite": "^6.0.7"
   },
   "engines": {

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "tool == \"Edit\" && tool_input.file_path matches \"supabase/migrations/.*\\\\.sql$\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/migration-guard.js\""
+          }
+        ],
+        "description": "Block edits to already-committed migration files — migrations are additive, not editable in place (agents/skills/database.md)"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "tool == \"Edit\" && tool_input.file_path matches \"\\\\.(ts|tsx)$\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/typecheck.js\""
+          }
+        ],
+        "description": "Run tsc --noEmit after editing a .ts/.tsx file and surface errors before npm test (agents/rules/typescript-standard.md §2.2/§3.3)"
+      }
+    ]
+  }
+}
