@@ -68,7 +68,10 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   survive PDFViewer's destructive re-render on every zoom/pan/fit-width/document change.
 - Toolbar, fixed left-to-right order: Pen (default) / Freeform highlighter → Text (default) / Text
   highlighter → Ellipse (default) / Rectangle / Line / Arrow (one-sided) → Cloud → Polygon → Signature
-  (upload image) (A1).
+  (upload image) (A1). All 11 are individually visible buttons, not collapsed into group dropdowns —
+  "(default)" only marks which tool is initially active (Pen, on mount) and which shape tool is
+  active if the user hasn't picked a different one; each tool still gets its own always-visible icon
+  button (`Toolbar.jsx` + `toolbarIcons.tsx`, inline SVG, no icon-library dependency).
 - All line-based marks render solid only (A2); opacity fixed at 100%, not configurable (A3).
 - One **global** style — color (default red), fill (default transparent), stroke width (default 4pt);
   changing it affects the active tool going forward, not existing annotations unless re-selected (A4).
@@ -220,3 +223,6 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   re-decodes every page before the user's position reappears. Known, accepted for now: task 5.2
   ("virtualized/progressive page rendering... so large documents don't block on full-document load")
   is the tracked fix for this, against Risk R2. Don't treat 5.2 as done without re-checking this.
+  Since 2.2, this also disposes and rebuilds *every* page's Fabric annotation canvas
+  (`toJSON`/`loadFromJSON` round-trip) on the same schedule — 5.2 needs to cover both costs, not just
+  pdf.js's own re-decode.

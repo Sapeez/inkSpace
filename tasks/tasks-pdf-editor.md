@@ -9,7 +9,8 @@
 - `src/viewer/NoAccessState.tsx` - Empty state for no-permission or dead-link scenarios.
 - `src/annotation-canvas/AnnotationCanvas.jsx` - Existing pre-existing JSX stub; gains a `forwardRef` imperative handle (`handlePageRendered`/`handlePagesReset`, wired from `PDFViewer.tsx` via `ViewerPage.jsx`) that layers one Fabric.js canvas per PDF page, normalized to PDF-point coordinates, surviving PDFViewer's destructive re-renders on zoom/pan/fit-width/document change.
 - `src/annotation-canvas/SignatureUploader.tsx` - Signature image upload and placement tool.
-- `src/toolbar/Toolbar.jsx` - Existing pre-existing JSX stub, left as-is; gains the annotation toolbar with all tools in the required left-to-right order.
+- `src/toolbar/Toolbar.jsx` - Existing pre-existing JSX stub; gains the annotation toolbar with all 11 tools in the required left-to-right order, tracking which one is active (`activeTool` state, local for now — lifted up/wired to `AnnotationCanvas.jsx` once a tool actually needs to change its drawing mode, starting task 2.4).
+- `src/toolbar/toolbarIcons.tsx` - New file (TS, per typescript-standard §2.1); one small inline-SVG icon component per tool, no icon-library dependency.
 - `src/toolbar/StyleControls.tsx` - Global color, fill, and stroke-width controls.
 - `src/modals/ConfirmModal.jsx` - Existing generic confirm modal; reused (not replaced) for the delete-annotation confirmation, passing the exact required title/body copy (requirement A6) — no separate `DeleteConfirmModal` component needed.
 - `src/modals/SaveModal.tsx` - Save-as-new-attachment modal with filename field, validation, progress state, and toast feedback.
@@ -25,6 +26,7 @@
 - `tests/PDFViewer.test.tsx` - Tests for `PDFViewer`'s own rendering/loading/error states.
 - `tests/PageNavigator.test.tsx` - Tests for prev/next navigation and the type-to-jump page input (split out of `PDFViewer.test.tsx` since navigation lives in its own component, `PageNavigator.tsx`, per task 1.5).
 - `tests/setup/jsdom.ts` - Per-file jsdom setup (`global-jsdom`) for component tests; deliberately *not* wired in process-wide via a `--import` flag, since that also applies to non-DOM test files run in their own child process (e.g. `permissions.test.ts`, which makes real network calls jsdom's globals broke).
+- `tests/AnnotationCanvas.test.tsx` - Tests for `AnnotationCanvas.jsx`'s Fabric canvas lifecycle: on-screen scale sizing, coordinate persistence across a rescale, and the stale-`handlePageRendered`-call race (added ahead of 2.15 per code review, since this logic landed in 2.2).
 - `tests/Annotator.test.ts` - Tests for toolbar rendering, style controls, delete confirmation, and annotation CRUD.
 - `tests/SaveModal.test.ts` - Tests for modal states, validation feedback, and toast messages.
 - `tests/permissions.test.ts` - Unit tests for the server-side permission middleware.
@@ -70,7 +72,7 @@ After implementing each sub-task, before checking it off, run this full loop —
 - [ ] 2.0 Annotation Tools — full toolbar, global styling, select/move/resize/delete
   - [x] 2.1 Install `fabric` (Fabric.js) as a client dependency (or Konva.js — pick one and use it throughout). Chose Fabric.js — see spec.md §2 for rationale.
   - [x] 2.2 Create `AnnotationCanvas.jsx`: layer a Fabric.js canvas on top of each rendered PDF page, keeping its own coordinate system normalized to PDF point space so annotations don't drift when the user zooms or scrolls (requirement A1, see Risk R1).
-  - [ ] 2.3 Create `Toolbar.jsx` with tools in this exact left-to-right order: Pen, Freeform Highlighter, Text, Text Highlighter, Ellipse (default shape), Rectangle, Line, Arrow, Cloud, Polygon, Signature (requirement A1). Show sensible default icons for each.
+  - [x] 2.3 Create `Toolbar.jsx` with tools in this exact left-to-right order: Pen, Freeform Highlighter, Text, Text Highlighter, Ellipse (default shape), Rectangle, Line, Arrow, Cloud, Polygon, Signature (requirement A1). Show sensible default icons for each.
   - [ ] 2.4 Implement the Pen tool: freehand drawing that produces a solid stroke (requirement A2, A3).
   - [ ] 2.5 Implement the Freeform Highlighter tool: same as pen but renders as a semi-transparent colored stroke.
   - [ ] 2.6 Implement the Text tool: click to place a text box the user can type into.
