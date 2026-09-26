@@ -118,3 +118,23 @@ test('a stale handlePageRendered call does not dispose the correct canvas built 
     'the stale call must not have disposed/replaced the correct canvas',
   );
 });
+
+test('the pen tool puts the canvas into free-drawing mode with the default red 4pt solid brush', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  const { rerender } = render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="pen" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+
+  const canvas = ref.current.getCanvas(1);
+  assert.equal(canvas.isDrawingMode, true);
+  assert.equal(canvas.freeDrawingBrush.color, '#dc2626');
+  assert.equal(canvas.freeDrawingBrush.width, 4);
+  assert.equal(canvas.upperCanvasEl.style.pointerEvents, 'auto');
+
+  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="text" />);
+
+  assert.equal(canvas.isDrawingMode, false, 'switching away from pen must turn drawing mode off');
+  assert.equal(canvas.upperCanvasEl.style.pointerEvents, 'none', 'and stop intercepting pointer input');
+});

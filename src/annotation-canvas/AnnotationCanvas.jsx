@@ -1,5 +1,35 @@
-import { forwardRef, useImperativeHandle, useRef } from 'react';
-import { Canvas } from 'fabric';
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import { Canvas, PencilBrush } from 'fabric';
+
+// Global style defaults (A4) — color default red, stroke width default 4pt.
+// Fabric's stroke `width` is in this canvas's own logical units, which are
+// PDF points (see the coordinate-space note below), so "4pt" is simply `4`,
+// no conversion needed. StyleControls (task 2.10) will make these
+// user-configurable; until then every tool that draws uses these constants.
+const DEFAULT_STROKE_COLOR = '#dc2626';
+const DEFAULT_STROKE_WIDTH = 4;
+
+// Tools that free-draw directly on the canvas (put it in Fabric's drawing
+// mode) rather than clicking/dragging to place a shape. Extend this as 2.5+
+// tools land (Freeform Highlighter is the next one, also freehand).
+const FREE_DRAWING_TOOLS = new Set(['pen']);
+
+function applyActiveTool(canvas, activeTool) {
+  const isFreeDrawing = FREE_DRAWING_TOOLS.has(activeTool);
+  canvas.isDrawingMode = isFreeDrawing;
+  if (isFreeDrawing) {
+    if (!canvas.freeDrawingBrush) canvas.freeDrawingBrush = new PencilBrush(canvas);
+    canvas.freeDrawingBrush.color = DEFAULT_STROKE_COLOR;
+    canvas.freeDrawingBrush.width = DEFAULT_STROKE_WIDTH;
+    // All line-based marks render solid only (A2); opacity fixed at 100%,
+    // not configurable (A3) — never set strokeDashArray or opacity < 1 here.
+  }
+
+  // No tool needs pointer input yet unless it free-draws (selection/move/
+  // resize lands in 2.13). Keep the overlay out of the way of pan/zoom-
+  // controls clicks otherwise.
+  canvas.upperCanvasEl.style.pointerEvents = isFreeDrawing ? 'auto' : 'none';
+}
 
 // PDFViewer.tsx owns the actual page DOM and rebuilds it wholesale on every
 // zoom/document change (it has no stable per-page DOM to attach to across
@@ -18,16 +48,26 @@ import { Canvas } from 'fabric';
 // matching the on-screen position at any zoom level (Risk R1).
 // `attachmentId` isn't used yet — kept in the signature for the save/load
 // wiring in task 3.x (persisting/loading the annotation JSON per attachment).
-const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pdfDoc }, ref) {
+const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pdfDoc, activeTool }, ref) {
   const canvasesRef = useRef(new Map()); // pageNumber -> fabric.Canvas
   const savedStateRef = useRef(new Map()); // pageNumber -> fabric JSON (PDF point coords)
   const pdfDocRef = useRef(pdfDoc);
+  // "Latest ref" pattern (same convention as PDFViewer.tsx): handlePageRendered
+  // is async and called imperatively from outside React's render flow, so it
+  // needs the tool that's active *now*, not whatever was active when its own
+  // invocation started.
+  const activeToolRef = useRef(activeTool);
+  activeToolRef.current = activeTool;
 
   if (pdfDocRef.current !== pdfDoc) {
     // A genuinely different document — nothing to carry forward.
     savedStateRef.current = new Map();
     pdfDocRef.current = pdfDoc;
   }
+
+  useEffect(() => {
+    canvasesRef.current.forEach((canvas) => applyActiveTool(canvas, activeTool));
+  }, [activeTool]);
 
   useImperativeHandle(
     ref,
@@ -88,6 +128,16 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
           selection: true,
         });
 
+        // While a free-drawing tool is active, a drag on this canvas must
+        // draw, not pan the (scale > 1) view beneath it — PDFViewer.tsx's
+        // pan handler listens on an ancestor (`.pdf-viewer`), so stopping
+        // propagation here is what keeps the two from firing on the same
+        // gesture. Checked live via `canvas.isDrawingMode`, not captured at
+        // attach time, so it stays correct across tool changes.
+        canvas.upperCanvasEl.addEventListener('pointerdown', (event) => {
+          if (canvas.isDrawingMode) event.stopPropagation();
+        });
+
         const screenWidth = pdfCanvasEl.width;
         const screenHeight = pdfCanvasEl.height;
         const scale = nativeViewport.width > 0 ? screenWidth / nativeViewport.width : 1;
@@ -97,8 +147,11 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
         const savedJson = savedStateRef.current.get(pageNumber);
         if (savedJson) {
           await canvas.loadFromJSON(savedJson);
-          canvas.requestRenderAll();
         }
+        // Applied after loadFromJSON (not just before) in case restoring
+        // objects ever touches canvas-level interaction state.
+        applyActiveTool(canvas, activeToolRef.current);
+        canvas.requestRenderAll();
 
         canvasesRef.current.set(pageNumber, canvas);
       },

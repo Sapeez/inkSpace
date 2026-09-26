@@ -7,9 +7,9 @@
 - `src/viewer/PageNavigator.tsx` - Page navigation controls (prev/next buttons, type-to-jump input).
 - `src/styles/global.css` - Existing single global stylesheet (no per-component CSS files in this repo); gains the viewer/annotation/toolbar layout rules as each component lands.
 - `src/viewer/NoAccessState.tsx` - Empty state for no-permission or dead-link scenarios.
-- `src/annotation-canvas/AnnotationCanvas.jsx` - Existing pre-existing JSX stub; gains a `forwardRef` imperative handle (`handlePageRendered`/`handlePagesReset`, wired from `PDFViewer.tsx` via `ViewerPage.jsx`) that layers one Fabric.js canvas per PDF page, normalized to PDF-point coordinates, surviving PDFViewer's destructive re-renders on zoom/pan/fit-width/document change.
+- `src/annotation-canvas/AnnotationCanvas.jsx` - Existing pre-existing JSX stub; gains a `forwardRef` imperative handle (`handlePageRendered`/`handlePagesReset`/`getCanvas`, wired from `PDFViewer.tsx` via `ViewerPage.jsx`) that layers one Fabric.js canvas per PDF page, normalized to PDF-point coordinates, surviving PDFViewer's destructive re-renders on zoom/pan/fit-width/document change. Takes `activeTool` as a prop (task 2.4) and puts the relevant page canvas(es) into free-drawing mode with the default red/4pt/solid brush (A2–A4) when it's a free-drawing tool; toggles `pointer-events` on Fabric's `upperCanvasEl` accordingly, and stops pointerdown propagation while drawing so it doesn't also trigger `PDFViewer.tsx`'s pan gesture.
 - `src/annotation-canvas/SignatureUploader.tsx` - Signature image upload and placement tool.
-- `src/toolbar/Toolbar.jsx` - Existing pre-existing JSX stub; gains the annotation toolbar with all 11 tools in the required left-to-right order, tracking which one is active (`activeTool` state, local for now — lifted up/wired to `AnnotationCanvas.jsx` once a tool actually needs to change its drawing mode, starting task 2.4).
+- `src/toolbar/Toolbar.jsx` - Existing pre-existing JSX stub; gains the annotation toolbar with all 11 tools in the required left-to-right order. Controlled component as of task 2.4 — `activeTool`/`onToolChange` are owned by `ViewerPage.jsx` (lifted up from local state) and passed to both `Toolbar.jsx` and `AnnotationCanvas.jsx`.
 - `src/toolbar/toolbarIcons.tsx` - New file (TS, per typescript-standard §2.1); one small inline-SVG icon component per tool, no icon-library dependency.
 - `src/toolbar/StyleControls.tsx` - Global color, fill, and stroke-width controls.
 - `src/modals/ConfirmModal.jsx` - Existing generic confirm modal; reused (not replaced) for the delete-annotation confirmation, passing the exact required title/body copy (requirement A6) — no separate `DeleteConfirmModal` component needed.
@@ -73,7 +73,7 @@ After implementing each sub-task, before checking it off, run this full loop —
   - [x] 2.1 Install `fabric` (Fabric.js) as a client dependency (or Konva.js — pick one and use it throughout). Chose Fabric.js — see spec.md §2 for rationale.
   - [x] 2.2 Create `AnnotationCanvas.jsx`: layer a Fabric.js canvas on top of each rendered PDF page, keeping its own coordinate system normalized to PDF point space so annotations don't drift when the user zooms or scrolls (requirement A1, see Risk R1).
   - [x] 2.3 Create `Toolbar.jsx` with tools in this exact left-to-right order: Pen, Freeform Highlighter, Text, Text Highlighter, Ellipse (default shape), Rectangle, Line, Arrow, Cloud, Polygon, Signature (requirement A1). Show sensible default icons for each.
-  - [ ] 2.4 Implement the Pen tool: freehand drawing that produces a solid stroke (requirement A2, A3).
+  - [x] 2.4 Implement the Pen tool: freehand drawing that produces a solid stroke (requirement A2, A3).
   - [ ] 2.5 Implement the Freeform Highlighter tool: same as pen but renders as a semi-transparent colored stroke.
   - [ ] 2.6 Implement the Text tool: click to place a text box the user can type into.
   - [ ] 2.7 Implement the Text Highlighter tool: drag a rectangle that highlights the area beneath it.

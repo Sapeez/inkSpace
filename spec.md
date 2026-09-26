@@ -75,6 +75,22 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
 - All line-based marks render solid only (A2); opacity fixed at 100%, not configurable (A3).
 - One **global** style — color (default red), fill (default transparent), stroke width (default 4pt);
   changing it affects the active tool going forward, not existing annotations unless re-selected (A4).
+  Not yet a real control (`StyleControls`/`Toolbar`'s style row is task 2.10) — until then, every tool
+  that draws uses fixed constants in `AnnotationCanvas.jsx` (`#dc2626` red, 4, matching A4's defaults).
+- **Pen (A2, A3, implemented)**: `activeTool` is lifted from `Toolbar.jsx` up to `ViewerPage.jsx` (owns
+  the state) and passed to both `Toolbar.jsx` (controlled) and `AnnotationCanvas.jsx`. When `activeTool`
+  is a free-drawing tool (currently just `pen`; `AnnotationCanvas.jsx`'s `FREE_DRAWING_TOOLS` set grows
+  as 2.5+ lands), every tracked page canvas gets `isDrawingMode = true` with a `PencilBrush` at the A4
+  defaults, and Fabric's `upperCanvasEl` gets `pointer-events: auto` (otherwise `none`, so the overlay
+  doesn't intercept clicks meant for pan/zoom-controls when no drawing tool is active). A `pointerdown`
+  listener on that same element stops propagation while `isDrawingMode` is true, so a drag draws instead
+  of also triggering `PDFViewer.tsx`'s pan gesture on the ancestor `.pdf-viewer`.
+  **Implementation note (not itself a requirement, but load-bearing):** Fabric wraps whatever `<canvas>`
+  element it's given in its own `.canvas-container` div (`position: relative` by default, holding a
+  "lower" and "upper" canvas). Without `.canvas-container { position: absolute; }` in `global.css`, that
+  wrapper sits in normal flow *after* the PDF canvas inside `.pdf-viewer-page` instead of overlaying it —
+  found and fixed while implementing 2.4, but it was latent since 2.2 (nothing before 2.4 ever made the
+  overlay visibly interactive enough to notice).
 - Any placed annotation: select → move, resize, or delete (A5). Delete requires a confirmation modal,
   title exactly `"Delete annotation?"`, body exactly `"Are you sure you want to delete this
   annotation?"` (A6).

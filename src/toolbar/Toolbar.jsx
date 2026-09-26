@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import {
   PenIcon,
   FreeformHighlighterIcon,
@@ -31,9 +30,7 @@ const TOOLS = [
   { id: 'signature', label: 'Signature', testId: 'tool-signature', Icon: SignatureIcon },
 ];
 
-export default function Toolbar({ attachmentId }) {
-  const [activeTool, setActiveTool] = useState('pen');
-
+export default function Toolbar({ attachmentId, activeTool, onToolChange }) {
   return (
     <header className="toolbar" role="toolbar" aria-label="Annotation tools" data-testid="annotation-toolbar">
       <span className="toolbar-attachment">Attachment: {attachmentId}</span>
@@ -46,7 +43,7 @@ export default function Toolbar({ attachmentId }) {
             data-testid={testId}
             aria-label={label}
             aria-pressed={activeTool === id}
-            onClick={() => setActiveTool(id)}
+            onClick={() => onToolChange(id)}
           >
             <Icon />
           </button>

@@ -182,17 +182,22 @@ html, body {
   position: relative;
 }
 
-.annotation-overlay-canvas {
-  position: absolute;
+/* Fabric.js wraps the <canvas> it's given in its own `.canvas-container` div
+   (created internally, `position: relative` by default) holding the actual
+   lower + upper canvas elements. Without this, that wrapper sits in normal
+   flow *after* the PDF canvas inside `.pdf-viewer-page` instead of overlaying
+   it — this rule is what makes it an overlay at all, not decoration. */
+.canvas-container {
+  position: absolute !important;
   top: 0;
   left: 0;
-  /* No annotation tool is active yet (Toolbar.jsx is still a stub — see task
-     2.3+), so this overlay must not intercept clicks meant for the page
-     beneath it, pan, or the zoom controls. A future tool activation needs to
-     flip this to `auto` (and back to `none` on deactivation) or nothing drawn
-     here will ever receive pointer input either. */
-  pointer-events: none;
 }
+
+/* `.annotation-overlay-canvas` (assigned in AnnotationCanvas.jsx, present on
+   both the lower and upper canvas Fabric creates) has no rules of its own —
+   it's kept only as a devtools-identifiable marker. Fabric positions both
+   canvases inline itself; AnnotationCanvas.jsx toggles `pointer-events` on
+   `upperCanvasEl` directly per active tool. */
 
 .zoom-controls {
   position: absolute;

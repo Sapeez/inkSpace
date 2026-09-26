@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import Toolbar from '../toolbar/Toolbar.jsx';
 import PDFViewer from './PDFViewer.tsx';
 import ThumbnailPanel from './ThumbnailPanel.tsx';
@@ -11,10 +11,11 @@ export default function ViewerPage() {
   const { attachmentId } = useParams();
   const { pdfDoc, loading, error } = usePdfDocument(attachmentId);
   const annotationCanvasRef = useRef(null);
+  const [activeTool, setActiveTool] = useState('pen');
 
   return (
     <div className="viewer-layout">
-      <Toolbar attachmentId={attachmentId} />
+      <Toolbar attachmentId={attachmentId} activeTool={activeTool} onToolChange={setActiveTool} />
       <div className="viewer-main">
         <ThumbnailPanel pdfDoc={pdfDoc} />
         <div className="pdf-viewer-region">
@@ -30,7 +31,7 @@ export default function ViewerPage() {
           <PageNavigator pdfDoc={pdfDoc} />
         </div>
       </div>
-      <AnnotationCanvas ref={annotationCanvasRef} attachmentId={attachmentId} pdfDoc={pdfDoc} />
+      <AnnotationCanvas ref={annotationCanvasRef} attachmentId={attachmentId} pdfDoc={pdfDoc} activeTool={activeTool} />
     </div>
   );
 }
