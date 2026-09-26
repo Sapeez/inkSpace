@@ -1,33 +1,41 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { Canvas, PencilBrush } from 'fabric';
 
-// Global style defaults (A4) — color default red, stroke width default 4pt.
+// Global style (A4) — color default red, stroke width default 4pt; every
+// free-drawing tool shares this base color/width. StyleControls (task 2.10)
+// will make color/width user-configurable; until then these are constants.
 // Fabric's stroke `width` is in this canvas's own logical units, which are
-// PDF points (see the coordinate-space note below), so "4pt" is simply `4`,
-// no conversion needed. StyleControls (task 2.10) will make these
-// user-configurable; until then every tool that draws uses these constants.
-const DEFAULT_STROKE_COLOR = '#dc2626';
-const DEFAULT_STROKE_WIDTH = 4;
-
-// Tools that free-draw directly on the canvas (put it in Fabric's drawing
-// mode) rather than clicking/dragging to place a shape. Extend this as 2.5+
-// tools land (Freeform Highlighter is the next one, also freehand).
-const FREE_DRAWING_TOOLS = new Set(['pen']);
+// PDF points (see the coordinate-space note below), so "4pt" is simply `4`.
+//
+// Per-tool `opacity` is NOT the same thing as A3's "opacity fixed at 100%,
+// not configurable" — A3 means there is no user-facing opacity *control* for
+// line-based marks (A2, e.g. Pen). Freeform Highlighter's semi-transparency
+// is a fixed, hardcoded property of that specific tool, not a setting either
+// tool exposes — so both rules hold at once. Applied to the finished path
+// object (`path:created`, below), not baked into the brush's color string,
+// so it stays a real `opacity` property in the serialized/burned-in state.
+const BASE_STROKE_COLOR = '#dc2626';
+const BASE_STROKE_WIDTH = 4;
+const TOOL_BRUSH_STYLES = {
+  pen: { opacity: 1 },
+  'freeform-highlighter': { opacity: 0.35 },
+};
+const FREE_DRAWING_TOOLS = new Set(Object.keys(TOOL_BRUSH_STYLES));
 
 function applyActiveTool(canvas, activeTool) {
   const isFreeDrawing = FREE_DRAWING_TOOLS.has(activeTool);
   canvas.isDrawingMode = isFreeDrawing;
   if (isFreeDrawing) {
     if (!canvas.freeDrawingBrush) canvas.freeDrawingBrush = new PencilBrush(canvas);
-    canvas.freeDrawingBrush.color = DEFAULT_STROKE_COLOR;
-    canvas.freeDrawingBrush.width = DEFAULT_STROKE_WIDTH;
-    // All line-based marks render solid only (A2); opacity fixed at 100%,
-    // not configurable (A3) — never set strokeDashArray or opacity < 1 here.
+    canvas.freeDrawingBrush.color = BASE_STROKE_COLOR;
+    canvas.freeDrawingBrush.width = BASE_STROKE_WIDTH;
+    // All line-based marks render solid only (A2) — never set strokeDashArray.
   }
 
   // No tool needs pointer input yet unless it free-draws (selection/move/
   // resize lands in 2.13). Keep the overlay out of the way of pan/zoom-
-  // controls clicks otherwise.
+  // controls clicks otherwise. `lowerCanvasEl` never needs pointer input —
+  // Fabric never attaches listeners to it — set once, not part of the toggle.
   canvas.upperCanvasEl.style.pointerEvents = isFreeDrawing ? 'auto' : 'none';
 }
 
@@ -136,6 +144,16 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
         // attach time, so it stays correct across tool changes.
         canvas.upperCanvasEl.addEventListener('pointerdown', (event) => {
           if (canvas.isDrawingMode) event.stopPropagation();
+        });
+        // Set once: this canvas never needs to receive pointer input itself
+        // (Fabric only ever attaches listeners to upperCanvasEl), independent
+        // of which tool is active.
+        canvas.lowerCanvasEl.style.pointerEvents = 'none';
+
+        canvas.on('path:created', ({ path }) => {
+          const style = TOOL_BRUSH_STYLES[activeToolRef.current];
+          if (style) path.set({ opacity: style.opacity });
+          canvas.requestRenderAll();
         });
 
         const screenWidth = pdfCanvasEl.width;

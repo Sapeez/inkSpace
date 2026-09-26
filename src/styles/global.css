@@ -195,9 +195,12 @@ html, body {
 
 /* `.annotation-overlay-canvas` (assigned in AnnotationCanvas.jsx, present on
    both the lower and upper canvas Fabric creates) has no rules of its own —
-   it's kept only as a devtools-identifiable marker. Fabric positions both
-   canvases inline itself; AnnotationCanvas.jsx toggles `pointer-events` on
-   `upperCanvasEl` directly per active tool. */
+   it's kept only as a devtools-identifiable marker. Only the upper canvas
+   gets an explicit inline `position: absolute` from Fabric; the lower canvas
+   gets none, and renders correctly anyway only because it's the wrapper's
+   first child with nothing preceding it. AnnotationCanvas.jsx sets
+   `pointer-events` on both canvases directly (`upperCanvasEl` per active
+   tool, `lowerCanvasEl` fixed to `none` — it never receives input). */
 
 .zoom-controls {
   position: absolute;

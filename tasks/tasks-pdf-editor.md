@@ -74,7 +74,7 @@ After implementing each sub-task, before checking it off, run this full loop —
   - [x] 2.2 Create `AnnotationCanvas.jsx`: layer a Fabric.js canvas on top of each rendered PDF page, keeping its own coordinate system normalized to PDF point space so annotations don't drift when the user zooms or scrolls (requirement A1, see Risk R1).
   - [x] 2.3 Create `Toolbar.jsx` with tools in this exact left-to-right order: Pen, Freeform Highlighter, Text, Text Highlighter, Ellipse (default shape), Rectangle, Line, Arrow, Cloud, Polygon, Signature (requirement A1). Show sensible default icons for each.
   - [x] 2.4 Implement the Pen tool: freehand drawing that produces a solid stroke (requirement A2, A3).
-  - [ ] 2.5 Implement the Freeform Highlighter tool: same as pen but renders as a semi-transparent colored stroke.
+  - [x] 2.5 Implement the Freeform Highlighter tool: same as pen but renders as a semi-transparent colored stroke.
   - [ ] 2.6 Implement the Text tool: click to place a text box the user can type into.
   - [ ] 2.7 Implement the Text Highlighter tool: drag a rectangle that highlights the area beneath it.
   - [ ] 2.8 Implement Ellipse, Rectangle, Line, and Arrow shape tools; Arrow should be one-sided (arrowhead on one end only); all outlines render as solid (requirement A2).

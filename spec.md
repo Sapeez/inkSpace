@@ -77,20 +77,33 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   changing it affects the active tool going forward, not existing annotations unless re-selected (A4).
   Not yet a real control (`StyleControls`/`Toolbar`'s style row is task 2.10) — until then, every tool
   that draws uses fixed constants in `AnnotationCanvas.jsx` (`#dc2626` red, 4, matching A4's defaults).
-- **Pen (A2, A3, implemented)**: `activeTool` is lifted from `Toolbar.jsx` up to `ViewerPage.jsx` (owns
-  the state) and passed to both `Toolbar.jsx` (controlled) and `AnnotationCanvas.jsx`. When `activeTool`
-  is a free-drawing tool (currently just `pen`; `AnnotationCanvas.jsx`'s `FREE_DRAWING_TOOLS` set grows
-  as 2.5+ lands), every tracked page canvas gets `isDrawingMode = true` with a `PencilBrush` at the A4
-  defaults, and Fabric's `upperCanvasEl` gets `pointer-events: auto` (otherwise `none`, so the overlay
-  doesn't intercept clicks meant for pan/zoom-controls when no drawing tool is active). A `pointerdown`
-  listener on that same element stops propagation while `isDrawingMode` is true, so a drag draws instead
-  of also triggering `PDFViewer.tsx`'s pan gesture on the ancestor `.pdf-viewer`.
+- **Pen and Freeform Highlighter (A2, A3, implemented)**: `activeTool` is lifted from `Toolbar.jsx` up to
+  `ViewerPage.jsx` (owns the state) and passed to both `Toolbar.jsx` (controlled) and
+  `AnnotationCanvas.jsx`. `AnnotationCanvas.jsx`'s `TOOL_BRUSH_STYLES` map (keys = free-drawing tool ids,
+  values = `{ opacity }`) is both the free-drawing membership test (`FREE_DRAWING_TOOLS` is derived from
+  its keys) and the per-tool style lookup — extending it is how 2.6+ free-drawing tools, if any, get
+  added. Pen and Freeform Highlighter share the same base color/width (`BASE_STROKE_COLOR`/
+  `BASE_STROKE_WIDTH`, the brush's own `color`/`width`) but differ in `opacity` (1 vs. 0.35), applied to
+  the finished stroke via Fabric's `path:created` event — not baked into the brush's color string — so
+  it stays a real `opacity` property in the serialized state (relevant for burn-in translation, task
+  3.x). This does not contradict A3 ("opacity fixed at 100%, not configurable"): A3 is about there being
+  no user-facing opacity *control* for line-based marks — Freeform Highlighter's semi-transparency is a
+  fixed, hardcoded property of that specific tool, never adjustable, so both rules hold simultaneously.
+  When `activeTool` is any free-drawing tool, every tracked page canvas gets `isDrawingMode = true` with
+  a `PencilBrush` at the shared base color/width, and Fabric's `upperCanvasEl` gets `pointer-events: auto`
+  (`lowerCanvasEl` is always `pointer-events: none` — Fabric never attaches listeners to it — and
+  `upperCanvasEl` is `none` too whenever no free-drawing tool is active, so the overlay doesn't intercept
+  clicks meant for pan/zoom-controls). A `pointerdown` listener on `upperCanvasEl` stops propagation
+  while `isDrawingMode` is true, so a drag draws instead of also triggering `PDFViewer.tsx`'s pan gesture
+  on the ancestor `.pdf-viewer`.
   **Implementation note (not itself a requirement, but load-bearing):** Fabric wraps whatever `<canvas>`
   element it's given in its own `.canvas-container` div (`position: relative` by default, holding a
-  "lower" and "upper" canvas). Without `.canvas-container { position: absolute; }` in `global.css`, that
-  wrapper sits in normal flow *after* the PDF canvas inside `.pdf-viewer-page` instead of overlaying it —
-  found and fixed while implementing 2.4, but it was latent since 2.2 (nothing before 2.4 ever made the
-  overlay visibly interactive enough to notice).
+  "lower" and "upper" canvas — only the upper one gets an explicit inline `position: absolute` from
+  Fabric). Without `.canvas-container { position: absolute !important; }` in `global.css` (`!important`
+  because Fabric's own `position: relative` is itself an inline style), that wrapper sits in normal flow
+  *after* the PDF canvas inside `.pdf-viewer-page` instead of overlaying it — found and fixed while
+  implementing 2.4, but it was latent since 2.2 (nothing before 2.4 ever made the overlay visibly
+  interactive enough to notice).
 - Any placed annotation: select → move, resize, or delete (A5). Delete requires a confirmation modal,
   title exactly `"Delete annotation?"`, body exactly `"Are you sure you want to delete this
   annotation?"` (A6).

@@ -6,12 +6,22 @@ setupJsdom();
 
 const { cleanup, render } = await import('@testing-library/react');
 const { createRef } = await import('react');
-const { Rect } = await import('fabric');
+const { Rect, Point } = await import('fabric');
 const AnnotationCanvas = (await import('../src/annotation-canvas/AnnotationCanvas')).default as any;
 
 afterEach(() => {
   cleanup();
 });
+
+// Drives the brush's own mouse handlers directly (bypassing real DOM events,
+// which jsdom can't produce realistic drag physics for anyway) to produce a
+// real Fabric `path:created` event, the same as an actual freehand stroke.
+function simulateStroke(canvas: any) {
+  const brush = canvas.freeDrawingBrush;
+  brush.onMouseDown(new Point(10, 10), { e: { clientX: 10, clientY: 10 } });
+  brush.onMouseMove(new Point(50, 50), { e: { clientX: 50, clientY: 50 } });
+  brush.onMouseUp({ e: { clientX: 50, clientY: 50 } });
+}
 
 function fakePage(scale: number, nativeWidth = 600, nativeHeight = 800) {
   return {
@@ -137,4 +147,29 @@ test('the pen tool puts the canvas into free-drawing mode with the default red 4
 
   assert.equal(canvas.isDrawingMode, false, 'switching away from pen must turn drawing mode off');
   assert.equal(canvas.upperCanvasEl.style.pointerEvents, 'none', 'and stop intercepting pointer input');
+});
+
+test('a pen stroke renders fully opaque; a freeform-highlighter stroke of the same color/width renders semi-transparent', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  const { rerender } = render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="pen" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+
+  simulateStroke(canvas);
+  assert.equal(canvas.getObjects().length, 1);
+  const penStroke = canvas.getObjects()[0];
+  assert.equal(penStroke.opacity, 1, 'A3: pen strokes render fully opaque');
+
+  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="freeform-highlighter" />);
+  assert.equal(canvas.isDrawingMode, true, 'freeform highlighter is also a free-drawing tool');
+
+  simulateStroke(canvas);
+  assert.equal(canvas.getObjects().length, 2);
+  const highlighterStroke = canvas.getObjects()[1];
+  assert.equal(highlighterStroke.stroke, penStroke.stroke, 'same base color as pen');
+  assert.equal(highlighterStroke.strokeWidth, penStroke.strokeWidth, 'same base width as pen');
+  assert.equal(highlighterStroke.opacity, 0.35, 'but semi-transparent, unlike the pen stroke above');
 });
