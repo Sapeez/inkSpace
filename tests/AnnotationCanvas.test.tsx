@@ -535,6 +535,100 @@ test('a rectangle/ellipse drag too small to be real is discarded, not kept as a 
   assert.equal(canvas.getObjects().length, 0);
 });
 
+test('the cloud tool drags out an unfilled, wavy-bordered shape sized to the drag box', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="cloud" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 50, clientY: 60 }, target: null });
+  canvas.fire('mouse:move', { e: { clientX: 250, clientY: 160 } });
+  canvas.fire('mouse:up', {});
+
+  assert.equal(canvas.getObjects().length, 1);
+  const cloud = canvas.getObjects()[0];
+  assert.equal(cloud.type, 'path', 'a wavy border is a Path (arcs), not a plain Rect');
+  assert.equal(cloud.fill, null, 'A4: fill defaults to transparent');
+  assert.equal(cloud.stroke, '#dc2626');
+  assert.equal(cloud.strokeWidth, 4);
+  assert.ok(!cloud.strokeDashArray, 'A2: outlines render solid only');
+  // Bounding box should roughly match the 200x100 drag box — the wavy path
+  // bows outward past the nominal box by roughly one bump size, not by an
+  // amount that would indicate the box was computed some other way.
+  const CLOUD_BUMP_SIZE = 20; // mirrors AnnotationCanvas.jsx's own constant
+  assert.ok(Math.abs(cloud.width - 200) <= CLOUD_BUMP_SIZE, `width ${cloud.width} should be close to the 200-unit drag width`);
+  assert.ok(Math.abs(cloud.height - 100) <= CLOUD_BUMP_SIZE, `height ${cloud.height} should be close to the 100-unit drag height`);
+});
+
+test('resizing a cloud mid-drag replaces the shape instance rather than mutating it, without leaking the old one', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="cloud" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 50, clientY: 60 }, target: null });
+  const firstCloud = canvas.getObjects()[0];
+
+  canvas.fire('mouse:move', { e: { clientX: 250, clientY: 160 } });
+  assert.equal(canvas.getObjects().length, 1, 'the old, smaller cloud must be removed, not left behind alongside the new one');
+  const secondCloud = canvas.getObjects()[0];
+  assert.notEqual(secondCloud, firstCloud, 'resize produced a new Path instance, as the wavy border requires');
+
+  canvas.fire('mouse:up', {});
+  assert.equal(canvas.getObjects().length, 1);
+});
+
+test('a thin cloud (bracketing a single line of text) renders at its actual dragged height, not inflated to the bump size', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="cloud" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  // 200 wide, only 10 tall — thinner than CLOUD_BUMP_SIZE (20). A real,
+  // intentional drag like this must not get inflated up to 20 the way a
+  // genuinely zero-size (mouse:down-only) cloud correctly does.
+  canvas.fire('mouse:down', { e: { clientX: 50, clientY: 100 }, target: null });
+  canvas.fire('mouse:move', { e: { clientX: 250, clientY: 110 } });
+  canvas.fire('mouse:up', {});
+
+  assert.equal(canvas.getObjects().length, 1);
+  const cloud = canvas.getObjects()[0];
+  // The wavy border always bows outward past the nominal box by roughly one
+  // bump radius (confirmed empirically: with the real 10-unit height the
+  // path's bounding-box height is ~30; if it were incorrectly floored to
+  // the 20-unit bump size instead, it would be ~40) — so the correct
+  // discriminator is "closer to the un-inflated value," not "under 20."
+  assert.ok(cloud.height < 35, `height ${cloud.height} must reflect the actual 10-unit drag, not the inflated 20-unit bump-size floor`);
+});
+
+test('a too-small cloud drag is discarded, not kept as a stray shape', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="cloud" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 50, clientY: 50 }, target: null });
+  canvas.fire('mouse:up', {});
+
+  assert.equal(canvas.getObjects().length, 0);
+});
+
 test('the line tool drags out a straight line between the two drag points', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));

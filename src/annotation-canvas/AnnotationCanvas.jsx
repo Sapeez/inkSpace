@@ -54,23 +54,42 @@ const CLICK_TO_PLACE_TOOLS = new Set(['text']);
 // to Line/Arrow's "drag between two points", below). Each entry says how to
 // create the shape at zero size and how to resize it to a given box — same
 // per-tool style-config shape as TOOL_BRUSH_STYLES, generalized to cover
-// Rectangle/Ellipse/Text Highlighter without three near-duplicate drag
-// implementations. `fill: null` (Rectangle/Ellipse) means A4's "fill default
-// transparent" — an outline only, letting the page show through.
+// Rectangle/Ellipse/Cloud/Text Highlighter without four near-duplicate drag
+// implementations. `resize` returns the shape to use going forward: most
+// tools mutate `shape` in place and return the same instance, but Cloud's
+// wavy outline is regenerated path data on every resize (same reasoning as
+// Line/Arrow rebuilding on every move, below) and returns a *new* Path
+// instead — the caller (updateBoundsDrag) swaps it into the canvas
+// transparently either way. `fill: null` (Rectangle/Ellipse/Cloud) means
+// A4's "fill default transparent" — an outline only, letting the page show
+// through.
 const BOUNDS_SHAPE_TOOLS = {
   'text-highlighter': {
     create: (left, top) => new Rect({ left, top, width: 0, height: 0, fill: BASE_STROKE_COLOR, opacity: HIGHLIGHTER_OPACITY, stroke: null }),
-    resize: (shape, left, top, width, height) => shape.set({ left, top, width, height }),
+    resize: (shape, left, top, width, height) => {
+      shape.set({ left, top, width, height });
+      return shape;
+    },
   },
   rectangle: {
     create: (left, top) => new Rect({ left, top, width: 0, height: 0, fill: null, stroke: BASE_STROKE_COLOR, strokeWidth: BASE_STROKE_WIDTH }),
-    resize: (shape, left, top, width, height) => shape.set({ left, top, width, height }),
+    resize: (shape, left, top, width, height) => {
+      shape.set({ left, top, width, height });
+      return shape;
+    },
   },
   ellipse: {
     create: (left, top) => new Ellipse({ left, top, rx: 0, ry: 0, fill: null, stroke: BASE_STROKE_COLOR, strokeWidth: BASE_STROKE_WIDTH }),
     // Ellipse's own width/height are derived from rx/ry (confirmed empirically
     // — setting rx/ry keeps .width/.height in sync), not settable directly.
-    resize: (shape, left, top, width, height) => shape.set({ left, top, rx: width / 2, ry: height / 2 }),
+    resize: (shape, left, top, width, height) => {
+      shape.set({ left, top, rx: width / 2, ry: height / 2 });
+      return shape;
+    },
+  },
+  cloud: {
+    create: (left, top) => buildCloudShape(left, top, 0, 0),
+    resize: (_shape, left, top, width, height) => buildCloudShape(left, top, width, height),
   },
 };
 
@@ -123,6 +142,64 @@ function buildArrowPath(start, end) {
 function buildLineOrArrow(tool, start, end) {
   if (tool === 'arrow') return buildArrowPath(start, end);
   return new Line([start.x, start.y, end.x, end.y], { stroke: BASE_STROKE_COLOR, strokeWidth: BASE_STROKE_WIDTH });
+}
+
+// Cloud (A7): rectangle-based, wavy border — a closed loop of outward-bowed
+// arcs around the drag's bounding box instead of straight edges. Bump count
+// per side is however many whole CLOUD_BUMP_SIZE-ish chords fit that side
+// (at least 1), so bumps stay a roughly consistent size regardless of the
+// box's own size, rather than a fixed bump count stretching/squashing on a
+// very wide or very narrow box.
+const CLOUD_BUMP_SIZE = 20;
+
+function buildCloudPathData(left, top, width, height) {
+  // A truly zero-size cloud (right at mouse:down, before any drag) would
+  // degenerate to zero-length sides (NaN arc radii) — floor only that exact
+  // case at one bump's width, not any dimension smaller than a bump. A real
+  // drag that's genuinely thin (e.g. bracketing a single line of text) must
+  // render at its actual dragged size, not be inflated up to CLOUD_BUMP_SIZE
+  // — unlike the zero case, that's a real user-intended shape, not a
+  // placeholder, and Rectangle/Ellipse never inflate a thin real drag either.
+  const w = width === 0 ? CLOUD_BUMP_SIZE : width;
+  const h = height === 0 ? CLOUD_BUMP_SIZE : height;
+  const corners = [
+    [left, top],
+    [left + w, top],
+    [left + w, top + h],
+    [left, top + h],
+  ];
+
+  const points = [];
+  for (let i = 0; i < corners.length; i += 1) {
+    const [x1, y1] = corners[i];
+    const [x2, y2] = corners[(i + 1) % corners.length];
+    const sideLength = Math.hypot(x2 - x1, y2 - y1);
+    const bumpCount = Math.max(1, Math.round(sideLength / CLOUD_BUMP_SIZE));
+    for (let b = 0; b < bumpCount; b += 1) {
+      const t = b / bumpCount;
+      points.push({ x: x1 + (x2 - x1) * t, y: y1 + (y2 - y1) * t });
+    }
+  }
+  points.push(points[0]);
+
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length; i += 1) {
+    const p1 = points[i - 1];
+    const p2 = points[i];
+    const radius = Math.hypot(p2.x - p1.x, p2.y - p1.y) / 2;
+    // sweep-flag 1: bows each arc outward for this loop's traversal
+    // direction (clockwise in screen coordinates) — confirmed visually.
+    d += ` A ${radius} ${radius} 0 0 1 ${p2.x} ${p2.y}`;
+  }
+  return d;
+}
+
+function buildCloudShape(left, top, width, height) {
+  return new Path(buildCloudPathData(left, top, width, height), {
+    fill: null,
+    stroke: BASE_STROKE_COLOR,
+    strokeWidth: BASE_STROKE_WIDTH,
+  });
 }
 
 const DEFAULT_TEXT_FONT_SIZE = 16;
@@ -231,7 +308,12 @@ function updateBoundsDrag(canvas, screenEvent) {
   const top = Math.min(start.y, current.y);
   const width = Math.abs(current.x - start.x);
   const height = Math.abs(current.y - start.y);
-  BOUNDS_SHAPE_TOOLS[tool].resize(shape, left, top, width, height);
+  const nextShape = BOUNDS_SHAPE_TOOLS[tool].resize(shape, left, top, width, height);
+  if (nextShape !== shape) {
+    canvas.remove(shape);
+    canvas.add(nextShape);
+    dragState.shape = nextShape;
+  }
   dragState.width = width;
   dragState.height = height;
   canvas.requestRenderAll();

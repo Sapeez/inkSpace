@@ -129,25 +129,42 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   `savedStateRef` and `loadFromJSON`'d back permanently on the very next zoom-triggered rebuild, with no
   way to remove it until 2.14's delete tooling exists) and on every tool-switch (otherwise a stray
   editing cursor stays live until the next canvas click).
-- **Text Highlighter, Rectangle, Ellipse (A1/A2/A4, implemented)**: all three drag out a bounding box
-  rather than clicking or freehand-drawing. `AnnotationCanvas.jsx`'s `BOUNDS_SHAPE_TOOLS` config map
-  (one entry per tool: how to create the shape at zero size, how to resize it to a given box) drives one
-  shared mechanism (`startBoundsDrag`/`updateBoundsDrag`/`finishBoundsDrag`, tracking
-  `canvas.__boundsDrag`) instead of three near-duplicate ones — adding a future bounds-drag tool is a
-  new map entry, not new drag-handling code. `mouse:move` resizes the shape to span the start and
-  current scene points (normalizing to whichever corner is actually top-left, regardless of drag
-  direction); `mouse:up` finalizes it, discarding it if the drag was too small
-  (`MIN_DRAG_SIZE_SCREEN_PX`, checked in *screen* pixels via `width/height * canvas.getZoom()` — a fixed
-  threshold in this canvas's zoom-dependent PDF-point space would let more incidental jitter through at
-  low zoom than at high zoom) to be a real shape rather than an accidental click. Text Highlighter is a
-  filled, semi-transparent shape with no stroke — `fill: BASE_STROKE_COLOR`, a real
+- **Text Highlighter, Rectangle, Ellipse, Cloud (A1/A2/A4/A7, implemented)**: all four drag out a
+  bounding box rather than clicking or freehand-drawing. `AnnotationCanvas.jsx`'s `BOUNDS_SHAPE_TOOLS`
+  config map (one entry per tool: how to create the shape at zero size, how to resize it to a given box)
+  drives one shared mechanism (`startBoundsDrag`/`updateBoundsDrag`/`finishBoundsDrag`, tracking
+  `canvas.__boundsDrag`) instead of four near-duplicate ones — adding a future bounds-drag tool is a new
+  map entry, not new drag-handling code. `resize` returns the shape to keep using going forward: most
+  tools mutate in place and return the same instance, but Cloud's wavy border is regenerated path data
+  on every resize (same reasoning as Line/Arrow rebuilding on every move, below) and returns a *new*
+  `Path` instead — `updateBoundsDrag` swaps it into the canvas (remove old, add new) transparently
+  either way, so the mechanism doesn't care which tools mutate vs. rebuild. `mouse:move` resizes/rebuilds
+  the shape to span the start and current scene points (normalizing to whichever corner is actually
+  top-left, regardless of drag direction); `mouse:up` finalizes it, discarding it if the drag was too
+  small (`MIN_DRAG_SIZE_SCREEN_PX`, checked in *screen* pixels via `width/height * canvas.getZoom()` — a
+  fixed threshold in this canvas's zoom-dependent PDF-point space would let more incidental jitter
+  through at low zoom than at high zoom) to be a real shape rather than an accidental click. Text
+  Highlighter is a filled, semi-transparent shape with no stroke — `fill: BASE_STROKE_COLOR`, a real
   `opacity: HIGHLIGHTER_OPACITY` property (not baked into the fill color, so it stays a real property in
   the serialized state for burn-in later) — sharing the same opacity constant Freeform Highlighter uses
-  (extracted so the two tools' visual treatment can't drift apart by accident). Rectangle and Ellipse are
-  the reverse — `fill: null` (A4's "fill default transparent" — an outline only, letting the page show
-  through), `stroke: BASE_STROKE_COLOR`/`strokeWidth: BASE_STROKE_WIDTH`, no dash array (A2: outlines
-  render solid). Ellipse's own `.width`/`.height` are derived from `rx`/`ry` (confirmed empirically, not
-  something this file has to keep in sync manually) — its `resize` sets `rx: width / 2, ry: height / 2`.
+  (extracted so the two tools' visual treatment can't drift apart by accident). Rectangle, Ellipse, and
+  Cloud are the reverse — `fill: null` (A4's "fill default transparent" — an outline only, letting the
+  page show through), `stroke: BASE_STROKE_COLOR`/`strokeWidth: BASE_STROKE_WIDTH`, no dash array (A2:
+  outlines render solid). Ellipse's own `.width`/`.height` are derived from `rx`/`ry` (confirmed
+  empirically, not something this file has to keep in sync manually) — its `resize` sets
+  `rx: width / 2, ry: height / 2`. Cloud (A7 — rectangle-based, wavy border, positioned right after the
+  shape tools in the toolbar) is a single `Path`: its perimeter is split into roughly `CLOUD_BUMP_SIZE`
+  (20-PDF-point) chords per side — at least one per side, so a very small box still gets a real shape
+  rather than a degenerate zero-length one — connected by outward-bowed circular arcs (`A` commands)
+  instead of straight edges, closing back to the starting point. Sweep-flag direction was confirmed
+  visually (bumps bow outward, not inward, for this loop's clockwise screen-coordinate traversal) rather
+  than assumed from SVG arc semantics alone. The degenerate-size floor only applies when a dimension is
+  *exactly* zero (the instant right after `mouse:down`, before any real drag) — a genuinely thin real
+  drag (e.g. bracketing a single line of text, tall enough to matter but shorter than one bump) renders
+  at its actual dragged size, not inflated up to `CLOUD_BUMP_SIZE`, matching how Rectangle/Ellipse never
+  inflate a thin real drag either. The wavy border still bows outward past whatever box it's given by
+  roughly one bump radius on each side — an inherent property of the arc geometry, not a bug — so
+  Cloud's rendered bounding box is always somewhat larger than the nominal drag box, thin or not.
 - **Line, Arrow (A1/A2, implemented)**: drag between two points, not a bounding box — direction matters
   (Arrow's head goes at the end point) and there's no "normalize to top-left corner" the way
   Rectangle/Ellipse have, so this is a second mechanism
