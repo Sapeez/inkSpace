@@ -59,8 +59,8 @@ After implementing each sub-task, before checking it off, run this full loop —
   - [x] 1.3 Implement continuous scroll: render pages one below the other in a scrollable container so the user can scroll through the whole document (requirement V1).
   - [x] 1.4 Create `ThumbnailPanel.tsx`: render small thumbnail previews of every page in a sidebar that is open by default; clicking a thumbnail scrolls the main view to that page (requirement V3).
   - [x] 1.5 Create `PageNavigator.jsx`: display the current page number, add previous/next buttons, and add a text input where the user can type a page number and press Enter to jump directly to it (requirement V4).
-  - [ ] 1.6 Add zoom in / zoom out controls that re-render pages at the new scale (requirement V5).
-  - [ ] 1.7 Add pan support so the user can drag the view when zoomed in (requirement V6).
+  - [x] 1.6 Add zoom in / zoom out controls that re-render pages at the new scale (requirement V5).
+  - [x] 1.7 Add pan support so the user can drag the view when zoomed in (requirement V6).
   - [ ] 1.8 Add a "Fit width" button that sets the zoom level so the page fills the viewer's width (requirement V7).
   - [ ] 1.9 Confirm that print, search, and any other pdf.js default controls are hidden or disabled — these are explicitly out of scope (requirement V8).
   - [ ] 1.10 Write `tests/PDFViewer.test.js`: test that the loading state appears, that navigation buttons work, and that the page-number input jumps to the correct page.

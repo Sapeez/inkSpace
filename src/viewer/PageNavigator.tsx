@@ -1,36 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { ChangeEvent, KeyboardEvent } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import { getMostVisiblePageNumber, scrollToPage } from './viewerPageTracking';
 
 interface PageNavigatorProps {
   pdfDoc: PDFDocumentProxy | null;
-}
-
-// Coordinates with PDFViewer.tsx through the `pdf-page-<n>` id and the
-// `.pdf-viewer`/`.pdf-viewer-page` classes it assigns, the same convention
-// ThumbnailPanel.tsx uses to scroll the main view.
-function scrollToPage(pageNumber: number) {
-  document.getElementById(`pdf-page-${pageNumber}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-function getVisiblePageNumber(container: Element): number | null {
-  const pages = container.querySelectorAll<HTMLElement>('.pdf-viewer-page');
-  if (pages.length === 0) return null;
-
-  const containerTop = container.getBoundingClientRect().top;
-  let closestPage: HTMLElement = pages[0]!;
-  let closestDistance = Infinity;
-
-  pages.forEach((page) => {
-    const distance = Math.abs(page.getBoundingClientRect().top - containerTop);
-    if (distance < closestDistance) {
-      closestDistance = distance;
-      closestPage = page;
-    }
-  });
-
-  const match = closestPage.id.match(/^pdf-page-(\d+)$/);
-  return match ? Number(match[1]) : null;
 }
 
 export default function PageNavigator({ pdfDoc }: PageNavigatorProps) {
@@ -57,7 +31,7 @@ export default function PageNavigator({ pdfDoc }: PageNavigatorProps) {
       if (frame !== null) return;
       frame = requestAnimationFrame(() => {
         frame = null;
-        const visiblePage = getVisiblePageNumber(container as Element);
+        const visiblePage = getMostVisiblePageNumber(container as Element);
         if (visiblePage !== null) setCurrentPage(visiblePage);
       });
     }
