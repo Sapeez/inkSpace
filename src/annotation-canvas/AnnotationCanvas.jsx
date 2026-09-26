@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
-import { Canvas, PencilBrush, Textbox } from 'fabric';
+import { Canvas, PencilBrush, Rect, Textbox } from 'fabric';
 
 // Global style (A4) — color default red, stroke width default 4pt; every
 // free-drawing tool shares this base color/width. StyleControls (task 2.10)
@@ -9,19 +9,36 @@ import { Canvas, PencilBrush, Textbox } from 'fabric';
 //
 // Per-tool `opacity` is NOT the same thing as A3's "opacity fixed at 100%,
 // not configurable" — A3 means there is no user-facing opacity *control* for
-// line-based marks (A2, e.g. Pen). Freeform Highlighter's semi-transparency
-// is a fixed, hardcoded property of that specific tool, not a setting either
-// tool exposes — so both rules hold at once. Applied to the finished path
-// object (`path:created`, below), not baked into the brush's color string,
-// so it stays a real `opacity` property in the serialized/burned-in state.
+// line-based marks (A2, e.g. Pen). A highlighter's semi-transparency is a
+// fixed, hardcoded property of that specific tool, not a setting either tool
+// exposes — so both rules hold at once. Applied to the finished object
+// (`path:created`/`finishHighlightDrag`, below), not baked into the brush's
+// or fill's color string, so it stays a real `opacity` property in the
+// serialized/burned-in state.
 const BASE_STROKE_COLOR = '#dc2626';
 const BASE_STROKE_WIDTH = 4;
+const HIGHLIGHTER_OPACITY = 0.35;
 const TOOL_BRUSH_STYLES = {
   pen: { opacity: 1 },
-  'freeform-highlighter': { opacity: 0.35 },
+  'freeform-highlighter': { opacity: HIGHLIGHTER_OPACITY },
 };
 const FREE_DRAWING_TOOLS = new Set(Object.keys(TOOL_BRUSH_STYLES));
 
+// Below this size, in *screen* pixels — not this canvas's PDF-point units,
+// which are zoom-dependent (`canvas.getScenePoint` divides by zoom, so a
+// fixed logical-space threshold would let more incidental screen-pixel
+// jitter through at low zoom and less at high zoom) — a drag-to-place
+// gesture is treated as an accidental click, not a real shape, and
+// discarded. Checked against `rect.width/height * canvas.getZoom()`, i.e.
+// converted back to screen space, in finishHighlightDrag.
+const MIN_DRAG_SIZE_SCREEN_PX = 4;
+
+// Assumes a 6-digit `#rrggbb` string — fine while the only caller is the
+// hardcoded BASE_STROKE_COLOR constant below, but task 2.10's global color
+// picker will feed a user-chosen value through this same path; a shorthand
+// hex (`#f00`) or any other format would silently produce `rgba(NaN, NaN,
+// NaN, x)` (an invisible stroke, no error) rather than failing loudly —
+// validate/normalize the picker's output before it reaches here.
 function withAlpha(hexColor, alpha) {
   const r = parseInt(hexColor.slice(1, 3), 16);
   const g = parseInt(hexColor.slice(3, 5), 16);
@@ -31,13 +48,31 @@ function withAlpha(hexColor, alpha) {
 
 // Text (A1) isn't free-drawing — it's click-to-place — but still needs the
 // overlay's pointer-events enabled to receive that click. Extend this set as
-// 2.7+ click/drag-to-place tools (shapes, cloud, polygon, signature) land.
+// 2.8+ click-to-place tools land.
 const CLICK_TO_PLACE_TOOLS = new Set(['text']);
-const INTERACTIVE_TOOLS = new Set([...FREE_DRAWING_TOOLS, ...CLICK_TO_PLACE_TOOLS]);
+// Text Highlighter is drag-to-place (drag out a rectangle), not freehand or a
+// single click. Extend this set as 2.8+ drag-to-place shape tools land.
+const DRAG_TO_PLACE_TOOLS = new Set(['text-highlighter']);
+const INTERACTIVE_TOOLS = new Set([...FREE_DRAWING_TOOLS, ...CLICK_TO_PLACE_TOOLS, ...DRAG_TO_PLACE_TOOLS]);
 
 const DEFAULT_TEXT_FONT_SIZE = 16;
 
+// A Textbox mid-edit doesn't get cleaned up (its `editing:exited` listener,
+// which removes it if left empty, only fires from Fabric's own on-canvas
+// deselect handling) when the user clicks something *outside* the canvas
+// entirely — a zoom/fit-width button, a different toolbar tool. Both of
+// those still need to force it closed: a zoom click is about to serialize
+// this canvas's state (`handlePagesReset`, below) and would otherwise
+// permanently persist an empty, invisible, unremovable annotation across
+// the rescale; a tool switch would otherwise leave a stray editing cursor
+// live until the next canvas click.
+function exitActiveEditing(canvas) {
+  const active = canvas.getActiveObject();
+  if (active?.isEditing) active.exitEditing();
+}
+
 function applyActiveTool(canvas, activeTool) {
+  exitActiveEditing(canvas);
   const isFreeDrawing = FREE_DRAWING_TOOLS.has(activeTool);
   canvas.isDrawingMode = isFreeDrawing;
   if (isFreeDrawing) {
@@ -52,13 +87,25 @@ function applyActiveTool(canvas, activeTool) {
     canvas.freeDrawingBrush.color = withAlpha(BASE_STROKE_COLOR, TOOL_BRUSH_STYLES[activeTool].opacity);
     canvas.freeDrawingBrush.width = BASE_STROKE_WIDTH;
     // All line-based marks render solid only (A2) — never set strokeDashArray.
+    // Side effect worth knowing about, not a bug: Fabric's PencilBrush switches
+    // to a "clear + fully redraw the stroke so far on every mouse:move" path
+    // (its needsFullRender() check) whenever the brush color's alpha is < 1 —
+    // i.e. only for Freeform Highlighter, not Pen. That's Fabric's own
+    // built-in fix for a translucent stroke self-overlapping and double-
+    // darkening at the overlap, so it's desirable, not a regression — it just
+    // means Highlighter is inherently a little heavier on long drags than Pen.
   }
 
   // Keep the overlay out of the way of pan/zoom-controls clicks unless the
-  // active tool actually needs pointer input (free-drawing or click-to-place).
-  // `lowerCanvasEl` never needs pointer input — Fabric never attaches
-  // listeners to it — set once at canvas creation, not part of this toggle.
+  // active tool actually needs pointer input. `lowerCanvasEl` never needs
+  // pointer input — Fabric never attaches listeners to it — set once at
+  // canvas creation, not part of this toggle.
   canvas.upperCanvasEl.style.pointerEvents = INTERACTIVE_TOOLS.has(activeTool) ? 'auto' : 'none';
+
+  // Fabric's own default behavior for a drag starting on empty canvas is a
+  // multi-select marquee — every one of our custom tools takes over that
+  // same drag gesture for its own purpose, so it must never compete with it.
+  canvas.selection = !INTERACTIVE_TOOLS.has(activeTool);
 }
 
 // Places a Textbox at the clicked point (already in this canvas's own PDF-
@@ -87,6 +134,56 @@ function placeTextbox(canvas, screenEvent) {
     }
   });
 
+  canvas.requestRenderAll();
+}
+
+// Text Highlighter: drag out a filled, semi-transparent rectangle over the
+// area the user wants to highlight — no stroke, since it's meant to look
+// like a highlight, not an outlined shape. `canvas.__highlightDrag` tracks
+// the in-progress drag between mouse:down and mouse:move/mouse:up (same
+// start/finish-at-different-events shape as free-drawing's `__strokeTool`,
+// just for a shape instead of a path).
+function startHighlightDrag(canvas, screenEvent) {
+  const start = canvas.getScenePoint(screenEvent);
+  const rect = new Rect({
+    left: start.x,
+    top: start.y,
+    width: 0,
+    height: 0,
+    fill: BASE_STROKE_COLOR,
+    opacity: HIGHLIGHTER_OPACITY,
+    stroke: null,
+  });
+  canvas.add(rect);
+  canvas.__highlightDrag = { start, rect };
+}
+
+function updateHighlightDrag(canvas, screenEvent) {
+  const dragState = canvas.__highlightDrag;
+  if (!dragState) return;
+  const { start, rect } = dragState;
+  const current = canvas.getScenePoint(screenEvent);
+  rect.set({
+    left: Math.min(start.x, current.x),
+    top: Math.min(start.y, current.y),
+    width: Math.abs(current.x - start.x),
+    height: Math.abs(current.y - start.y),
+  });
+  canvas.requestRenderAll();
+}
+
+function finishHighlightDrag(canvas) {
+  const dragState = canvas.__highlightDrag;
+  canvas.__highlightDrag = null;
+  if (!dragState) return;
+  const { rect } = dragState;
+  // A drag too small to be a real highlight is an accidental click, not a
+  // shape the user actually wanted to keep. Convert back to screen pixels
+  // before comparing — see MIN_DRAG_SIZE_SCREEN_PX's comment.
+  const zoom = canvas.getZoom();
+  if (rect.width * zoom < MIN_DRAG_SIZE_SCREEN_PX || rect.height * zoom < MIN_DRAG_SIZE_SCREEN_PX) {
+    canvas.remove(rect);
+  }
   canvas.requestRenderAll();
 }
 
@@ -149,6 +246,8 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
 
       handlePagesReset() {
         canvasesRef.current.forEach((canvas, pageNumber) => {
+          // Must run before toJSON() — see exitActiveEditing's comment.
+          exitActiveEditing(canvas);
           savedStateRef.current.set(pageNumber, canvas.toJSON());
           canvas.dispose();
         });
@@ -161,6 +260,7 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
 
         const existing = canvasesRef.current.get(pageNumber);
         if (existing) {
+          exitActiveEditing(existing);
           savedStateRef.current.set(pageNumber, existing.toJSON());
           existing.dispose();
           canvasesRef.current.delete(pageNumber);
@@ -203,16 +303,6 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
         // of which tool is active.
         canvas.lowerCanvasEl.style.pointerEvents = 'none';
 
-        // A stroke can take real time to draw; the active tool could change
-        // mid-stroke (e.g. Tab-focus + Enter on a toolbar button while the
-        // mouse is still held down elsewhere). Capture which tool a stroke
-        // belongs to when it *starts*, and use that in path:created — not
-        // whatever's active when the mouse happens to come up — so a stroke
-        // drawn as Pen can't retroactively get tagged as the Highlighter's.
-        canvas.on('mouse:down', () => {
-          canvas.__strokeTool = activeToolRef.current;
-        });
-
         canvas.on('path:created', ({ path }) => {
           const style = TOOL_BRUSH_STYLES[canvas.__strokeTool];
           if (style) path.set({ stroke: BASE_STROKE_COLOR, opacity: style.opacity });
@@ -220,11 +310,37 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
         });
 
         canvas.on('mouse:down', (event) => {
-          // Clicking an existing object (e.g. an already-placed text box)
-          // should select/edit it, not stack a new one on top of it.
-          if (activeToolRef.current === 'text' && !event.target) {
+          const tool = activeToolRef.current;
+
+          // A stroke can take real time to draw; the active tool could
+          // change mid-stroke (e.g. Tab-focus + Enter on a toolbar button
+          // while the mouse is still held down elsewhere). Capture which
+          // tool a stroke belongs to when it *starts*, and use that in
+          // path:created — not whatever's active when the mouse happens to
+          // come up — so a stroke drawn as Pen can't retroactively get
+          // tagged as the Highlighter's.
+          canvas.__strokeTool = tool;
+
+          // Clicking an existing object (e.g. an already-placed text box or
+          // highlight) should select/move it (or, for a text box already
+          // selected, enter editing on this second click — Fabric's own
+          // IText/Textbox behavior, not something this file drives) instead
+          // of placing a new one on top of it.
+          if (event.target) return;
+
+          if (tool === 'text') {
             placeTextbox(canvas, event.e);
+          } else if (DRAG_TO_PLACE_TOOLS.has(tool) && !canvas.__highlightDrag) {
+            startHighlightDrag(canvas, event.e);
           }
+        });
+
+        canvas.on('mouse:move', (event) => {
+          updateHighlightDrag(canvas, event.e);
+        });
+
+        canvas.on('mouse:up', () => {
+          finishHighlightDrag(canvas);
         });
 
         const screenWidth = pdfCanvasEl.width;

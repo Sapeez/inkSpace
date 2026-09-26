@@ -108,16 +108,42 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   listens for, get redirected to the capturing element per the Pointer Events spec's compatibility-event
   rules, breaking drawing and click-to-place alike if not stopped first).
 - **Text (A1, implemented)**: click-to-place, not free-drawing — `AnnotationCanvas.jsx`'s
-  `CLICK_TO_PLACE_TOOLS` set (currently just `text`; extend as 2.7+ click/drag-to-place tools land)
-  joins `FREE_DRAWING_TOOLS` to form `INTERACTIVE_TOOLS`, the actual pointer-events/stopPropagation
-  gate. A `mouse:down` listener creates a Fabric `Textbox` at `canvas.getScenePoint(event)` — already in
-  this canvas's own PDF-point space, accounting for the current zoom, so no manual scale math is needed
-  (same Risk R1 guarantee as everything else here) — only when the click didn't land on an existing
-  object (`!event.target`, so clicking an existing text box selects/edits it instead of stacking a new
-  one on top). The new box gets the base color as its fill, drops the user straight into editing
+  `CLICK_TO_PLACE_TOOLS` set (currently just `text`) joins `FREE_DRAWING_TOOLS` and `DRAG_TO_PLACE_TOOLS`
+  (below) to form `INTERACTIVE_TOOLS`, the actual pointer-events/stopPropagation gate, and also decides
+  whether Fabric's own default multi-select marquee is disabled (`canvas.selection`) — every one of this
+  file's custom tools takes over the same "drag starting on empty canvas" gesture Fabric's marquee
+  would otherwise claim, so it must never compete with any of them. A single, consolidated `mouse:down`
+  listener creates a Fabric `Textbox` at `canvas.getScenePoint(event)` — already in this canvas's own
+  PDF-point space, accounting for the current zoom, so no manual scale math is needed (same Risk R1
+  guarantee as everything else here) — only when the click didn't land on an existing object
+  (`!event.target`, so clicking an existing text box selects/moves it — or, on a second click once
+  already selected, enters editing, Fabric's own IText/Textbox behavior — instead of stacking a new one
+  on top). The new box gets the base color as its fill, drops the user straight into editing
   (`enterEditing()` + `selectAll()`), and removes itself on `editing:exited` if the user never typed
-  anything, so clicking away without typing doesn't leave an empty, invisible, forever-selectable
-  annotation behind.
+  anything, so clicking away *on the canvas* without typing doesn't leave an empty, invisible,
+  forever-selectable annotation behind. That listener only fires from Fabric's own on-canvas deselect
+  handling, though — clicking something *outside* the canvas entirely (a zoom/fit-width button, a
+  different toolbar tool) never triggers it on its own, so `AnnotationCanvas.jsx` also force-exits any
+  in-progress editing itself (`exitActiveEditing`, reusing the same `editing:exited` cleanup) both before
+  serializing a canvas (`handlePagesReset` — otherwise an empty box mid-edit would get saved into
+  `savedStateRef` and `loadFromJSON`'d back permanently on the very next zoom-triggered rebuild, with no
+  way to remove it until 2.14's delete tooling exists) and on every tool-switch (otherwise a stray
+  editing cursor stays live until the next canvas click).
+- **Text Highlighter (A1, implemented)**: drag-to-place, not click or freehand —
+  `AnnotationCanvas.jsx`'s `DRAG_TO_PLACE_TOOLS` set (currently just `text-highlighter`; extend as 2.8+
+  drag-to-place shape tools land). The same consolidated `mouse:down` listener starts a drag
+  (`canvas.__highlightDrag`, tracking the start point and a zero-size `Rect` already added to the
+  canvas) when this tool is active and the click didn't land on an existing object; `mouse:move` resizes
+  that `Rect` to span the start and current scene points (normalizing to whichever corner is actually
+  top-left, regardless of drag direction); `mouse:up` finalizes it, discarding it if the drag was too
+  small (`MIN_DRAG_SIZE_SCREEN_PX`, checked in *screen* pixels via `rect.width/height * canvas.getZoom()`
+  — a fixed threshold in this canvas's zoom-dependent PDF-point space would let more incidental jitter
+  through at low zoom than at high zoom) to be a real highlight rather than an accidental click. The
+  rectangle is a filled, semi-transparent shape with no stroke — `fill: BASE_STROKE_COLOR`, a real
+  `opacity: HIGHLIGHTER_OPACITY` property (not baked into the fill color, matching the Freeform
+  Highlighter path's own `opacity` handling so both tools serialize the same way for burn-in later),
+  `stroke: null` — sharing the same opacity constant Freeform Highlighter uses (extracted so the two
+  tools' visual treatment can't drift apart by accident).
   **Implementation note (not itself a requirement, but load-bearing):** Fabric wraps whatever `<canvas>`
   element it's given in its own `.canvas-container` div (`position: relative` by default, holding a
   "lower" and "upper" canvas — only the upper one gets an explicit inline `position: absolute` from
