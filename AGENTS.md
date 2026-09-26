@@ -11,6 +11,8 @@ Brand You is a web app for viewing documents, annotating on a canvas, applying b
 
 ## Workflow
 
+- [spec.md](spec.md) is the living spec for the PDF Editor feature (goal, expected behavior, permissions, edge cases, acceptance criteria), derived from `pdf_editor_prd.pdf` and `tasks/tasks-pdf-editor.md`. After completing any sub-task in that task list, update `spec.md` if the implementation changed or clarified agreed behavior — before moving to the next sub-task, not in a later cleanup pass.
+- Per-sub-task loop for `tasks/tasks-pdf-editor.md` (see its "Instructions for Completing Tasks"): implement → update `spec.md` if needed → add tests via `agents/skills/testing.md`/`agents/skills/integration-testing.md` and run them → run the `code-reviewer` skill and report its findings → check off the sub-task. Don't check off a sub-task before this loop completes.
 - For new features, follow the PRD → task-list process in [agents/rules/createprd.md](agents/rules/createprd.md) and [agents/rules/generatetasks.md](agents/rules/generatetasks.md).
 - Branching and commit conventions: [agents/rules/git-workflow.md](agents/rules/git-workflow.md).
 - New code is TypeScript: [agents/rules/typescript-standard.md](agents/rules/typescript-standard.md).

@@ -30,6 +30,7 @@
 
 ### Notes
 
+- `../spec.md` is the living spec for this feature. After finishing each sub-task below, update it if the implementation changed or clarified agreed behavior (e.g. moved a requirement from "planned" to "current", or the real behavior diverged from the PRD in a way worth recording) — do this as part of finishing the sub-task, not deferred.
 - Unit tests should be placed in the `tests/` directory (the project convention), named after the file they test.
 - Use `npm test` to run the test suite (`node --test` — do not add Jest, Vitest, or Mocha). New `.ts` test files run per `agents/rules/typescript-standard.md` §3.1.
 - Install pdf.js and Fabric.js (or Konva.js) as client dependencies; install pdf-lib as a server dependency.
@@ -42,6 +43,13 @@
 ## Instructions for Completing Tasks
 
 **IMPORTANT:** Check off each task as you complete it by changing `- [ ]` to `- [x]`. Update after each sub-task, not only after finishing a parent task.
+
+After implementing each sub-task, before checking it off, run this full loop — not just the code change:
+
+1. Update `../spec.md` if the implementation changed or clarified agreed behavior.
+2. Add meaningful tests for what the sub-task actually built: unit tests per `agents/skills/testing.md` (`node --test`, in `tests/`), and, for any UI-facing or permission-facing behavior, integration tests per `agents/skills/integration-testing.md` / `agents/rules/integration-tests.md` (Playwright, in `tests/integration/<feature-area>/`). Run `npm test` and report the actual pass/fail output — not a description of expected output (`verification-loop` skill).
+3. Run the `code-reviewer` skill/subagent against the sub-task's diff and report its findings verbatim, including anything still unresolved — do not summarize away open findings.
+4. Only then flip `- [ ]` to `- [x]`.
 
 ## Tasks
 
