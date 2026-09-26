@@ -25,6 +25,44 @@ body {
   background: #f9fafb;
 }
 
+.pdf-viewer {
+  position: relative;
+  flex: 1;
+  overflow: auto;
+  background: #f3f4f6;
+  display: flex;
+  justify-content: center;
+}
+
+.pdf-viewer-loading {
+  position: absolute;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  background: #111827;
+  color: #fff;
+  font-size: 0.875rem;
+}
+
+.pdf-viewer-error {
+  position: absolute;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  background: #b91c1c;
+  color: #fff;
+  font-size: 0.875rem;
+}
+
+.pdf-viewer-canvas {
+  box-shadow: 0 1px 4px rgb(0 0 0 / 15%);
+  height: fit-content;
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;

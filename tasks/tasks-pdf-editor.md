@@ -4,7 +4,7 @@
 - `src/viewer/PDFViewer.tsx` - Main PDF viewer component (rendering, scroll, zoom, pan, fit-width).
 - `src/viewer/ThumbnailPanel.tsx` - Thumbnails sidebar, open by default, showing all pages.
 - `src/viewer/PageNavigator.tsx` - Page navigation controls (prev/next buttons, type-to-jump input).
-- `src/viewer/PDFViewer.css` - Styles for the viewer layout.
+- `src/styles/global.css` - Existing single global stylesheet (no per-component CSS files in this repo); gains the viewer/annotation/toolbar layout rules as each component lands.
 - `src/viewer/NoAccessState.tsx` - Empty state for no-permission or dead-link scenarios.
 - `src/annotation-canvas/AnnotationCanvas.jsx` - Existing pre-existing JSX stub, left as-is; gains the Fabric.js (or Konva.js) canvas overlay for all annotation drawing, selection, move, and resize.
 - `src/annotation-canvas/SignatureUploader.tsx` - Signature image upload and placement tool.
@@ -46,7 +46,7 @@
 
 - [ ] 1.0 PDF Viewer — render, scroll, thumbnails, zoom/pan, page navigation
   - [x] 1.1 Install `pdfjs-dist` (the npm package for pdf.js) as a client dependency.
-  - [ ] 1.2 Create `PDFViewer.jsx`: load a PDF from a signed URL, render pages to a `<canvas>` element using pdf.js, and show a visible loading indicator while the file is being fetched and rendered (requirement V2).
+  - [x] 1.2 Create `PDFViewer.tsx`: load a PDF from a signed URL, render pages to a `<canvas>` element using pdf.js, and show a visible loading indicator while the file is being fetched and rendered (requirement V2).
   - [ ] 1.3 Implement continuous scroll: render pages one below the other in a scrollable container so the user can scroll through the whole document (requirement V1).
   - [ ] 1.4 Create `ThumbnailPanel.jsx`: render small thumbnail previews of every page in a sidebar that is open by default; clicking a thumbnail scrolls the main view to that page (requirement V3).
   - [ ] 1.5 Create `PageNavigator.jsx`: display the current page number, add previous/next buttons, and add a text input where the user can type a page number and press Enter to jump directly to it (requirement V4).
