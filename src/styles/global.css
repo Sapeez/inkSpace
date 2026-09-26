@@ -177,6 +177,13 @@ html, body {
   cursor: default;
 }
 
+.zoom-controls-button--label {
+  font-size: 0.8125rem;
+  padding: 0.125rem 0.5rem;
+  border-right: 1px solid rgb(255 255 255 / 20%);
+  border-radius: 0;
+}
+
 .zoom-controls-level {
   min-width: 3ch;
   text-align: center;

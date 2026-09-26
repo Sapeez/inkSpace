@@ -45,7 +45,9 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   the page the user was on and their horizontal pan offset in view, rather than resetting
   scroll to the top-left (V5); click-and-drag pan (pointer events, so mouse and touch both
   work), enabled only above 100% zoom — below that the content already fits, so native
-  scroll/wheel is enough (V6); "Fit width" (V7).
+  scroll/wheel is enough (V6); "Fit width" computes scale from the first page's native width
+  vs. the viewer's current clientWidth and goes through the same zoom pipeline (clamped to
+  50%–300%, same scroll-restore behavior) rather than being a separate layout mode (V7).
 - No print, search, or any pdf.js default control beyond V1–V7 — actively hidden/disabled, not just
   unused, since rendering libraries expose these by default (V8).
 
@@ -185,7 +187,7 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 
 | Phase | Status |
 |---|---|
-| 1 — Viewer (V1–V8) | Partial: render/scroll/loading/thumbnails, page navigator, zoom in/out, and pan done (1.1–1.7). Fit-width and explicit print/search suppression not yet built (1.8–1.9). |
+| 1 — Viewer (V1–V8) | Partial: render/scroll/loading/thumbnails, page navigator, zoom in/out, pan, and fit-width done (1.1–1.8). Explicit print/search suppression not yet confirmed (1.9). |
 | 2 — Annotation tools (A1–A9) | Not started. `AnnotationCanvas.jsx` and `Toolbar.jsx` are structural stubs only; Fabric.js/Konva.js not installed. |
 | 3 — Download & Save (D1–D3, S1–S8, F1–F6) | Not started. `pdf-lib` not installed; `applyBurnIn`/`saveAttachment` are placeholder stubs (`server/services/burn-in.js`, `server/services/storage.ts`) tied to an old timestamp/watermark concept, not the annotation model above. |
 | 4 — Permissions & sharing (P1–P5) | Partial: `shares` table and `canRead`/`canWrite`/`canBurnIn` logic exist and are unit-tested (`tests/permissions.test.ts`). Identity is still the `x-user-id` header stub (see §4 gap). `ShareModal`, `NoAccessState`, and the grant endpoint are not built. |

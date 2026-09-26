@@ -29,6 +29,8 @@ export default function PDFViewer({ pdfDoc, loading: documentLoading, error: doc
   const viewerRef = useRef<HTMLDivElement>(null);
   const pagesContainerRef = useRef<HTMLDivElement>(null);
   const prevPdfDocRef = useRef<PDFDocumentProxy | null>(null);
+  const currentPdfDocRef = useRef<PDFDocumentProxy | null>(null);
+  currentPdfDocRef.current = pdfDoc;
   const lastVisiblePageRef = useRef<number | null>(null);
   const lastScrollLeftFractionRef = useRef(0);
   const panStateRef = useRef<PanState | null>(null);
@@ -133,6 +135,20 @@ export default function PDFViewer({ pdfDoc, loading: documentLoading, error: doc
     setScale((current) => Math.max(MIN_SCALE, Math.round((current - SCALE_STEP) * 100) / 100));
   }
 
+  async function fitWidth() {
+    if (!pdfDoc || rendering) return;
+    const targetDoc = pdfDoc;
+    const page = await targetDoc.getPage(1);
+    if (currentPdfDocRef.current !== targetDoc) return;
+
+    const availableWidth = viewerRef.current?.clientWidth ?? 0;
+    const nativeWidth = page.getViewport({ scale: 1 }).width;
+    if (availableWidth <= 0 || nativeWidth <= 0) return;
+
+    const fitScale = Math.round((availableWidth / nativeWidth) * 100) / 100;
+    setScale(Math.min(MAX_SCALE, Math.max(MIN_SCALE, fitScale)));
+  }
+
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (scale <= 1 || rendering || event.button !== 0 || isInteractiveTarget(event.target)) return;
     if (panStateRef.current) return;
@@ -191,6 +207,16 @@ export default function PDFViewer({ pdfDoc, loading: documentLoading, error: doc
         </div>
       )}
       <div className="zoom-controls" data-testid="zoom-controls" onPointerDown={(event) => event.stopPropagation()}>
+        <button
+          type="button"
+          className="zoom-controls-button zoom-controls-button--label"
+          data-testid="fit-width-button"
+          aria-label="Fit width"
+          disabled={!pdfDoc || rendering}
+          onClick={fitWidth}
+        >
+          Fit width
+        </button>
         <button
           type="button"
           className="zoom-controls-button"
