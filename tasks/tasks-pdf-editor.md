@@ -1,38 +1,42 @@
 ## Relevant Files
 
-- `src/components/PDFViewer/PDFViewer.jsx` - Main PDF viewer component (rendering, scroll, zoom, pan, fit-width).
-- `src/components/PDFViewer/ThumbnailPanel.jsx` - Thumbnails sidebar, open by default, showing all pages.
-- `src/components/PDFViewer/PageNavigator.jsx` - Page navigation controls (prev/next buttons, type-to-jump input).
-- `src/components/PDFViewer/PDFViewer.css` - Styles for the viewer layout.
-- `src/components/Annotator/AnnotationCanvas.jsx` - Fabric.js (or Konva.js) canvas overlay for all annotation drawing, selection, move, and resize.
-- `src/components/Annotator/Toolbar.jsx` - Annotation toolbar with all tools in the required left-to-right order.
-- `src/components/Annotator/StyleControls.jsx` - Global color, fill, and stroke-width controls.
-- `src/components/Annotator/DeleteConfirmModal.jsx` - Confirmation modal before deleting an annotation.
-- `src/components/Annotator/SignatureUploader.jsx` - Signature image upload and placement tool.
-- `src/components/SaveModal/SaveModal.jsx` - Save-as-new-attachment modal with filename field, validation, progress state, and toast feedback.
-- `src/components/ShareModal/ShareModal.jsx` - Email-based share/permission UI for owners.
-- `src/components/EmptyState/NoAccessState.jsx` - Empty state for no-permission or dead-link scenarios.
-- `src/utils/filenameUtils.js` - Timestamp generation, existing-timestamp detection/replacement, and filename validation logic (F1–F6).
-- `server/routes/attachments.js` - Backend endpoints: fetch attachment, burn-in annotations (pdf-lib), save as new attachment.
-- `server/routes/shares.js` - Backend endpoints: grant access by email, look up permission for a user, revoke access.
-- `server/middleware/permissions.js` - Middleware that enforces edit vs. view-only on every attachment endpoint.
-- `supabase/migrations/XXXXXXXXXXXXXX_pdf_editor.sql` - Schema additions: attachment table columns + permission/share table.
-- `tests/filenameUtils.test.js` - Unit tests for all filename/timestamp rules (F1–F6), including boundary cases.
-- `tests/PDFViewer.test.js` - Tests for viewer rendering, navigation, and zoom controls.
-- `tests/Annotator.test.js` - Tests for toolbar rendering, style controls, delete confirmation, and annotation CRUD.
-- `tests/SaveModal.test.js` - Tests for modal states, validation feedback, and toast messages.
-- `tests/permissions.test.js` - Unit tests for the server-side permission middleware.
-- `tests/permissions.api.test.js` - Integration tests that call the API directly as a low-privilege user to confirm server-side enforcement.
+- `src/viewer/ViewerPage.jsx` - Existing route-level container (pre-existing JSX stub, left as-is per `agents/rules/typescript-standard.md` §2.3/§5); composes `Toolbar`, `PDFViewer`, `ThumbnailPanel`, and `AnnotationCanvas`.
+- `src/viewer/PDFViewer.tsx` - Main PDF viewer component (rendering, scroll, zoom, pan, fit-width).
+- `src/viewer/ThumbnailPanel.tsx` - Thumbnails sidebar, open by default, showing all pages.
+- `src/viewer/PageNavigator.tsx` - Page navigation controls (prev/next buttons, type-to-jump input).
+- `src/viewer/PDFViewer.css` - Styles for the viewer layout.
+- `src/viewer/NoAccessState.tsx` - Empty state for no-permission or dead-link scenarios.
+- `src/annotation-canvas/AnnotationCanvas.jsx` - Existing pre-existing JSX stub, left as-is; gains the Fabric.js (or Konva.js) canvas overlay for all annotation drawing, selection, move, and resize.
+- `src/annotation-canvas/SignatureUploader.tsx` - Signature image upload and placement tool.
+- `src/toolbar/Toolbar.jsx` - Existing pre-existing JSX stub, left as-is; gains the annotation toolbar with all tools in the required left-to-right order.
+- `src/toolbar/StyleControls.tsx` - Global color, fill, and stroke-width controls.
+- `src/modals/ConfirmModal.jsx` - Existing generic confirm modal; reused (not replaced) for the delete-annotation confirmation, passing the exact required title/body copy (requirement A6) — no separate `DeleteConfirmModal` component needed.
+- `src/modals/SaveModal.tsx` - Save-as-new-attachment modal with filename field, validation, progress state, and toast feedback.
+- `src/modals/ShareModal.tsx` - Email-based share/permission UI for owners.
+- `src/utils/filenameUtils.ts` - Timestamp generation, existing-timestamp detection/replacement, and filename validation logic (F1–F6).
+- `server/routes/attachments.js` - Existing pre-existing JS file; gains fetch-attachment wiring against real permission checks.
+- `server/routes/burn-in.js` - Existing pre-existing JS file; gains the real burn-in request/response wiring against `pdf-lib`.
+- `server/services/burn-in.ts` - Burn-in service, converted to TS while its real pdf-lib logic is implemented (draws annotations onto the original PDF's pages, requirement S3/R4).
+- `server/routes/shares.ts` - Backend endpoints: grant access by email, look up permission for a user, revoke access.
+- `server/middleware/permissions.ts` - Converted from the current all-permissive `.js` stub to TS while its real logic (edit vs. view-only per attachment) is implemented — priority conversion per `agents/rules/typescript-standard.md` §5.
+- `supabase/migrations/XXXXXXXXXXXXXX_pdf_editor.sql` - Any schema additions still needed on top of the existing `shares` table (see Notes below).
+- `tests/filenameUtils.test.ts` - Unit tests for all filename/timestamp rules (F1–F6), including boundary cases.
+- `tests/PDFViewer.test.ts` - Tests for viewer rendering, navigation, and zoom controls.
+- `tests/Annotator.test.ts` - Tests for toolbar rendering, style controls, delete confirmation, and annotation CRUD.
+- `tests/SaveModal.test.ts` - Tests for modal states, validation feedback, and toast messages.
+- `tests/permissions.test.ts` - Unit tests for the server-side permission middleware.
+- `tests/permissions.api.test.ts` - Integration tests that call the API directly as a low-privilege user to confirm server-side enforcement.
 
 ### Notes
 
 - Unit tests should be placed in the `tests/` directory (the project convention), named after the file they test.
-- Use `npm test` to run the test suite (`node --test` — do not add Jest, Vitest, or Mocha).
+- Use `npm test` to run the test suite (`node --test` — do not add Jest, Vitest, or Mocha). New `.ts` test files run per `agents/rules/typescript-standard.md` §3.1.
 - Install pdf.js and Fabric.js (or Konva.js) as client dependencies; install pdf-lib as a server dependency.
 - All permission checks must exist server-side; hiding a UI element is a UX nicety, not a security control.
 - Burn-in runs server-side via pdf-lib — do not do a purely client-side burn-in.
 - All timestamps (F1–F3) are computed in UTC.
 - The `shares` table (`grantee_email`, `grantee_user_id`, `role: edit|view`, `granted_by`, `granted_at`) already exists as of `supabase/migrations/20250825000000_reconcile_shares.sql`, which superseded the differently-shaped `permissions` table from the original migration — task 4.1 only needs to add the endpoint/middleware logic against it, not recreate the table. See `agents/skills/database.md` for the confirmed schema.
+- New files in `src/` and `server/` are TypeScript from creation, per `agents/rules/typescript-standard.md` §2.1. The three pre-existing stubs (`ViewerPage.jsx`, `Toolbar.jsx`, `AnnotationCanvas.jsx`) stay `.jsx` for now — they're existing files, not new ones, and the canvas/PDF rendering directories are explicitly excluded from opportunistic conversion (§2.3, §5). `permissions.js` → `.ts` is the exception: its real logic is being written from scratch in this task list, and it's the named priority conversion target.
 
 ## Instructions for Completing Tasks
 
