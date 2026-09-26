@@ -25,11 +25,6 @@ html, body {
   border-bottom: 1px solid #e5e7eb;
 }
 
-.annotation-canvas {
-  flex: 1;
-  background: #f9fafb;
-}
-
 .viewer-main {
   display: flex;
   flex: 1;
@@ -140,6 +135,22 @@ html, body {
 .pdf-viewer-canvas {
   box-shadow: 0 1px 4px rgb(0 0 0 / 15%);
   height: fit-content;
+}
+
+.pdf-viewer-page {
+  position: relative;
+}
+
+.annotation-overlay-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* No annotation tool is active yet (Toolbar.jsx is still a stub — see task
+     2.3+), so this overlay must not intercept clicks meant for the page
+     beneath it, pan, or the zoom controls. A future tool activation needs to
+     flip this to `auto` (and back to `none` on deactivation) or nothing drawn
+     here will ever receive pointer input either. */
+  pointer-events: none;
 }
 
 .zoom-controls {

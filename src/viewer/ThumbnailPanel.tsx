@@ -1,16 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
+import { scrollToPage } from './viewerPageTracking';
 
 const THUMBNAIL_SCALE = 0.2;
 
 interface ThumbnailPanelProps {
   pdfDoc: PDFDocumentProxy | null;
-}
-
-// Targets the `pdf-page-<n>` id PDFViewer.tsx assigns to each page wrapper —
-// the two components coordinate through this DOM id, not a shared prop/ref.
-function scrollToPage(pageNumber: number) {
-  document.getElementById(`pdf-page-${pageNumber}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 export default function ThumbnailPanel({ pdfDoc }: ThumbnailPanelProps) {

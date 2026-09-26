@@ -26,7 +26,7 @@ toward adding features for their own sake.
 | Layer | Choice | Why |
 |---|---|---|
 | PDF rendering (client) | `pdf.js` (`pdfjs-dist`) | Free/open-source; canvas-based paginated rendering, zoom/pan, thumbnails. |
-| Annotation overlay (client) | Fabric.js or Konva.js *(not yet installed)* | Free canvas toolkit for draw/select/move/resize; keeps its own coordinate system normalized to PDF point space so annotations survive zoom/scroll without drift. |
+| Annotation overlay (client) | `fabric` (Fabric.js) | Free canvas toolkit for draw/select/move/resize; keeps its own coordinate system normalized to PDF point space so annotations survive zoom/scroll without drift. Chosen over Konva.js: Fabric's built-in object model (rect/ellipse/polygon/path/IText/group, each with selection/resize handles and a freehand `PencilBrush`) covers A1–A8's tool set with less custom code than Konva's lower-level scene graph would need. |
 | Burn-in (server) | `pdf-lib` *(not yet installed)* | Writes the overlay's vector content into a **new** PDF, server-side — the persisted file must not be solely a product of client-side code the user can alter. |
 | Auth / DB / Storage | Supabase (Postgres + Storage) | `attachments` + `shares` tables (see `supabase/migrations/`); signed, time-bounded URLs for file access. |
 | Backend | Node + Express | Four-verb endpoints (fetch/create/change/remove) against attachments and shares. |
@@ -57,6 +57,15 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   off because none of it was ever wired in.
 
 ### 3.2 Annotation tools (A1–A9)
+- One Fabric.js canvas per PDF page, layered directly into that page's DOM (`AnnotationCanvas.jsx`,
+  attached via `PDFViewer.tsx`'s `onPageRendered`/`onPagesReset` callbacks — `PDFViewer.tsx` rebuilds all
+  page DOM on every zoom/document change, so there's no stable DOM to attach to across scale changes
+  otherwise). Each canvas is created at the page's *native* (scale 1) PDF-point dimensions and only
+  `setDimensions`/`setZoom` change when on-screen scale changes — annotation object coordinates
+  (`left`/`top`/etc.) always stay in PDF-point space, never screen pixels, which is what keeps burn-in
+  position matching the on-screen position at any zoom level (Risk R1, A1). Per-page state is preserved
+  (serialize via `toJSON`/`dispose` before teardown, `loadFromJSON` after reattaching) so annotations
+  survive PDFViewer's destructive re-render on every zoom/pan/fit-width/document change.
 - Toolbar, fixed left-to-right order: Pen (default) / Freeform highlighter → Text (default) / Text
   highlighter → Ellipse (default) / Rectangle / Line / Arrow (one-sided) → Cloud → Polygon → Signature
   (upload image) (A1).
@@ -193,7 +202,7 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 | Phase | Status |
 |---|---|
 | 1 — Viewer (V1–V8) | Done (1.1–1.10): render/scroll/loading/thumbnails, page navigator, zoom in/out, pan, fit-width, confirmed absence of default pdf.js print/search UI, and component tests for `PDFViewer`/`PageNavigator`. |
-| 2 — Annotation tools (A1–A9) | Not started. `AnnotationCanvas.jsx` and `Toolbar.jsx` are structural stubs only; Fabric.js/Konva.js not installed. |
+| 2 — Annotation tools (A1–A9) | Partial: Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). No tools yet — `Toolbar.jsx` is still a structural stub, and the overlay's `pointer-events: none` until a tool is active. |
 | 3 — Download & Save (D1–D3, S1–S8, F1–F6) | Not started. `pdf-lib` not installed; `applyBurnIn`/`saveAttachment` are placeholder stubs (`server/services/burn-in.js`, `server/services/storage.ts`) tied to an old timestamp/watermark concept, not the annotation model above. |
 | 4 — Permissions & sharing (P1–P5) | Partial: `shares` table and `canRead`/`canWrite`/`canBurnIn` logic exist and are unit-tested (`tests/permissions.test.ts`). Identity is still the `x-user-id` header stub (see §4 gap). `ShareModal`, `NoAccessState`, and the grant endpoint are not built. |
 | 5 — Hardening | Not started (depends on 2–4). |
@@ -205,3 +214,9 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 - **Burn-in and save services are placeholders** tied to an unrelated timestamp/watermark concept —
   they need to be rebuilt against the actual annotation JSON model, not extended in place.
 - **No coordinate-drift check exists yet** (Risk R1) — needed before Phase 2/3 can be called done.
+- **Every zoom/pan/fit-width change fully re-renders the document from page 1** (`PDFViewer.tsx`'s
+  `[pdfDoc, scale]` effect clears and rebuilds every page, not just the ones near the viewport) — on
+  the `large-multipage.pdf` fixture this means a single zoom click blanks the whole viewport and
+  re-decodes every page before the user's position reappears. Known, accepted for now: task 5.2
+  ("virtualized/progressive page rendering... so large documents don't block on full-document load")
+  is the tracked fix for this, against Risk R2. Don't treat 5.2 as done without re-checking this.

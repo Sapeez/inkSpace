@@ -1,6 +1,7 @@
 # Testing
 
 - Test runner is Node's built-in `node --test`, invoked via `npm test` against `tests/*.test.js`, `tests/*.test.ts`, and `tests/*.test.tsx`. Do not introduce Jest, Vitest, or Mocha.
+- That glob is **flat, not recursive** — a test file placed in a subdirectory (e.g. `tests/viewer/Foo.test.tsx`) will never run under `npm test`. `tests/setup/` exists but holds only non-test helpers (`jsdom.ts`), so this hasn't bitten anyone yet; keep new `*.test.*` files directly under `tests/` until the glob is made recursive.
 - Integration/burn-in tests use the fixtures in `tests/fixtures/` (see that folder's README): an already-timestamped PDF, a large multi-page PDF, and an oversized PNG for exercising `MAX_UPLOAD_BYTES`.
 - The checked-in fixtures are placeholders — swap in real assets per `tests/fixtures/README.md` before running the full suite.
 

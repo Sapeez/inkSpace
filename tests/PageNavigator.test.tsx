@@ -2,6 +2,7 @@ import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { setupJsdom } from './setup/jsdom';
+import { TEST_IDS } from './consts/inkSpace';
 
 setupJsdom();
 
@@ -19,9 +20,9 @@ afterEach(() => {
 test('next/previous buttons move the current page and disable at the boundaries', () => {
   render(<PageNavigator pdfDoc={fakePdfDoc(3)} />);
 
-  const prevButton = screen.getByTestId('prev-page-button');
-  const nextButton = screen.getByTestId('next-page-button');
-  const input = screen.getByTestId('current-page-input') as HTMLInputElement;
+  const prevButton = screen.getByTestId(TEST_IDS.PREV_PAGE_BUTTON);
+  const nextButton = screen.getByTestId(TEST_IDS.NEXT_PAGE_BUTTON);
+  const input = screen.getByTestId(TEST_IDS.CURRENT_PAGE_INPUT) as HTMLInputElement;
 
   assert.equal(input.value, '1');
   assert.ok(prevButton.hasAttribute('disabled'));
@@ -40,7 +41,7 @@ test('next/previous buttons move the current page and disable at the boundaries'
 
 test('typing a page number and pressing Enter jumps to that page', () => {
   render(<PageNavigator pdfDoc={fakePdfDoc(10)} />);
-  const input = screen.getByTestId('current-page-input') as HTMLInputElement;
+  const input = screen.getByTestId(TEST_IDS.CURRENT_PAGE_INPUT) as HTMLInputElement;
 
   fireEvent.change(input, { target: { value: '7' } });
   fireEvent.keyDown(input, { key: 'Enter' });
@@ -50,7 +51,7 @@ test('typing a page number and pressing Enter jumps to that page', () => {
 
 test('an out-of-range page number clamps to the last page instead of jumping past it', () => {
   render(<PageNavigator pdfDoc={fakePdfDoc(5)} />);
-  const input = screen.getByTestId('current-page-input') as HTMLInputElement;
+  const input = screen.getByTestId(TEST_IDS.CURRENT_PAGE_INPUT) as HTMLInputElement;
 
   fireEvent.change(input, { target: { value: '99' } });
   fireEvent.keyDown(input, { key: 'Enter' });
@@ -60,7 +61,7 @@ test('an out-of-range page number clamps to the last page instead of jumping pas
 
 test('a non-numeric entry reverts to the current page instead of jumping', () => {
   render(<PageNavigator pdfDoc={fakePdfDoc(5)} />);
-  const input = screen.getByTestId('current-page-input') as HTMLInputElement;
+  const input = screen.getByTestId(TEST_IDS.CURRENT_PAGE_INPUT) as HTMLInputElement;
 
   fireEvent.change(input, { target: { value: 'abc' } });
   fireEvent.keyDown(input, { key: 'Enter' });

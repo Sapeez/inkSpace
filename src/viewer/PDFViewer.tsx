@@ -11,6 +11,14 @@ interface PDFViewerProps {
   pdfDoc: PDFDocumentProxy | null;
   loading: boolean;
   error: string | null;
+  // Escape hatch for AnnotationCanvas.jsx, which layers a Fabric canvas over
+  // each page's DOM. This file rebuilds that DOM wholesale on every zoom or
+  // document change (replaceChildren + re-render page by page), so a sibling
+  // can't just read `pdf-page-<n>` once — it needs to know exactly when a
+  // page's DOM is (re)created and when it's about to be torn down, so it can
+  // reattach without leaking Fabric's internal listeners or losing state.
+  onPageRendered?: (pageNumber: number, pageWrapper: HTMLDivElement, pdfCanvas: HTMLCanvasElement) => void;
+  onPagesReset?: () => void;
 }
 
 interface PanState {
@@ -25,7 +33,13 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest('button, input, a') !== null;
 }
 
-export default function PDFViewer({ pdfDoc, loading: documentLoading, error: documentError }: PDFViewerProps) {
+export default function PDFViewer({
+  pdfDoc,
+  loading: documentLoading,
+  error: documentError,
+  onPageRendered,
+  onPagesReset,
+}: PDFViewerProps) {
   const viewerRef = useRef<HTMLDivElement>(null);
   const pagesContainerRef = useRef<HTMLDivElement>(null);
   const prevPdfDocRef = useRef<PDFDocumentProxy | null>(null);
@@ -41,10 +55,17 @@ export default function PDFViewer({ pdfDoc, loading: documentLoading, error: doc
   // Deliberately assigned during render, not inside an effect: async callers
   // like fitWidth() need the value as of the most recent render, and a passive
   // effect would still be showing the previous one when their `await` resumes.
+  // Safe only because nothing here uses startTransition/useDeferredValue/Suspense
+  // today — a discarded speculative render would leave a phantom value in these
+  // refs until the next real render overwrites it. Revisit if that changes.
   const latestPdfDocRef = useRef(pdfDoc);
   latestPdfDocRef.current = pdfDoc;
   const latestScaleRef = useRef(scale);
   latestScaleRef.current = scale;
+  const latestOnPageRenderedRef = useRef(onPageRendered);
+  latestOnPageRenderedRef.current = onPageRendered;
+  const latestOnPagesResetRef = useRef(onPagesReset);
+  latestOnPagesResetRef.current = onPagesReset;
 
   function cancelPan() {
     const panState = panStateRef.current;
@@ -100,6 +121,8 @@ export default function PDFViewer({ pdfDoc, loading: documentLoading, error: doc
           renderTasks.push(renderTask);
           await renderTask.promise;
           if (cancelled) return;
+
+          latestOnPageRenderedRef.current?.(pageNumber, pageWrapper, canvas);
         }
 
         if (!cancelled) {
@@ -124,6 +147,7 @@ export default function PDFViewer({ pdfDoc, loading: documentLoading, error: doc
     return () => {
       cancelled = true;
       renderTasks.forEach((task) => task.cancel());
+      latestOnPagesResetRef.current?.();
       const container = viewerRef.current;
       if (container) {
         lastVisiblePageRef.current = getMostVisiblePageNumber(container);

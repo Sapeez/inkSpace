@@ -2,12 +2,12 @@
 
 - `src/viewer/ViewerPage.jsx` - Existing route-level container (pre-existing JSX stub, left as-is per `agents/rules/typescript-standard.md` §2.3/§5); composes `Toolbar`, `PDFViewer`, `ThumbnailPanel`, and `AnnotationCanvas`.
 - `src/viewer/usePdfDocument.ts` - Shared hook: fetches the signed URL and loads the pdf.js document once per attachment; `ViewerPage` owns it and passes `pdfDoc`/`loading`/`error` down to `PDFViewer` and `ThumbnailPanel` so the PDF is only fetched/parsed once.
-- `src/viewer/PDFViewer.tsx` - Main PDF viewer component (rendering, scroll, zoom, pan, fit-width). Takes `pdfDoc`/`loading`/`error` as props.
+- `src/viewer/PDFViewer.tsx` - Main PDF viewer component (rendering, scroll, zoom, pan, fit-width). Takes `pdfDoc`/`loading`/`error` as props, plus `onPageRendered`/`onPagesReset` callbacks so `AnnotationCanvas.jsx` knows exactly when a page's DOM is (re)created or about to be torn down.
 - `src/viewer/ThumbnailPanel.tsx` - Thumbnails sidebar, open by default, showing all pages. Takes `pdfDoc` as a prop; clicking a thumbnail scrolls the main view via the `pdf-page-<n>` id `PDFViewer` assigns to each page.
 - `src/viewer/PageNavigator.tsx` - Page navigation controls (prev/next buttons, type-to-jump input).
 - `src/styles/global.css` - Existing single global stylesheet (no per-component CSS files in this repo); gains the viewer/annotation/toolbar layout rules as each component lands.
 - `src/viewer/NoAccessState.tsx` - Empty state for no-permission or dead-link scenarios.
-- `src/annotation-canvas/AnnotationCanvas.jsx` - Existing pre-existing JSX stub, left as-is; gains the Fabric.js (or Konva.js) canvas overlay for all annotation drawing, selection, move, and resize.
+- `src/annotation-canvas/AnnotationCanvas.jsx` - Existing pre-existing JSX stub; gains a `forwardRef` imperative handle (`handlePageRendered`/`handlePagesReset`, wired from `PDFViewer.tsx` via `ViewerPage.jsx`) that layers one Fabric.js canvas per PDF page, normalized to PDF-point coordinates, surviving PDFViewer's destructive re-renders on zoom/pan/fit-width/document change.
 - `src/annotation-canvas/SignatureUploader.tsx` - Signature image upload and placement tool.
 - `src/toolbar/Toolbar.jsx` - Existing pre-existing JSX stub, left as-is; gains the annotation toolbar with all tools in the required left-to-right order.
 - `src/toolbar/StyleControls.tsx` - Global color, fill, and stroke-width controls.
@@ -55,7 +55,7 @@ After implementing each sub-task, before checking it off, run this full loop —
 
 ## Tasks
 
-- [ ] 1.0 PDF Viewer — render, scroll, thumbnails, zoom/pan, page navigation
+- [x] 1.0 PDF Viewer — render, scroll, thumbnails, zoom/pan, page navigation
   - [x] 1.1 Install `pdfjs-dist` (the npm package for pdf.js) as a client dependency.
   - [x] 1.2 Create `PDFViewer.tsx`: load a PDF from a signed URL, render pages to a `<canvas>` element using pdf.js, and show a visible loading indicator while the file is being fetched and rendered (requirement V2).
   - [x] 1.3 Implement continuous scroll: render pages one below the other in a scrollable container so the user can scroll through the whole document (requirement V1).
@@ -68,8 +68,8 @@ After implementing each sub-task, before checking it off, run this full loop —
   - [x] 1.10 Write `tests/PDFViewer.test.js`: test that the loading state appears, that navigation buttons work, and that the page-number input jumps to the correct page. (Implemented as `tests/PDFViewer.test.tsx` for the loading/error states and `tests/PageNavigator.test.tsx` for prev/next + page-jump, since navigation is `PageNavigator.tsx`, not `PDFViewer.tsx` — see Relevant Files.)
 
 - [ ] 2.0 Annotation Tools — full toolbar, global styling, select/move/resize/delete
-  - [ ] 2.1 Install `fabric` (Fabric.js) as a client dependency (or Konva.js — pick one and use it throughout).
-  - [ ] 2.2 Create `AnnotationCanvas.jsx`: layer a Fabric.js canvas on top of each rendered PDF page, keeping its own coordinate system normalized to PDF point space so annotations don't drift when the user zooms or scrolls (requirement A1, see Risk R1).
+  - [x] 2.1 Install `fabric` (Fabric.js) as a client dependency (or Konva.js — pick one and use it throughout). Chose Fabric.js — see spec.md §2 for rationale.
+  - [x] 2.2 Create `AnnotationCanvas.jsx`: layer a Fabric.js canvas on top of each rendered PDF page, keeping its own coordinate system normalized to PDF point space so annotations don't drift when the user zooms or scrolls (requirement A1, see Risk R1).
   - [ ] 2.3 Create `Toolbar.jsx` with tools in this exact left-to-right order: Pen, Freeform Highlighter, Text, Text Highlighter, Ellipse (default shape), Rectangle, Line, Arrow, Cloud, Polygon, Signature (requirement A1). Show sensible default icons for each.
   - [ ] 2.4 Implement the Pen tool: freehand drawing that produces a solid stroke (requirement A2, A3).
   - [ ] 2.5 Implement the Freeform Highlighter tool: same as pen but renders as a semi-transparent colored stroke.
