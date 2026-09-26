@@ -81,6 +81,13 @@ html, body {
   box-shadow: 0 1px 3px rgb(0 0 0 / 15%);
 }
 
+.pdf-viewer-region {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
 .pdf-viewer {
   position: relative;
   flex: 1;
@@ -124,6 +131,57 @@ html, body {
 .pdf-viewer-canvas {
   box-shadow: 0 1px 4px rgb(0 0 0 / 15%);
   height: fit-content;
+}
+
+.page-navigator {
+  position: absolute;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 999px;
+  background: #111827;
+  color: #fff;
+  font-size: 0.875rem;
+}
+
+.page-navigator-button {
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.page-navigator-button:hover:not(:disabled),
+.page-navigator-button:focus-visible {
+  background: rgb(255 255 255 / 15%);
+}
+
+.page-navigator-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.page-navigator-input {
+  width: 2.5rem;
+  text-align: center;
+  border: 1px solid rgb(255 255 255 / 30%);
+  border-radius: 4px;
+  background: rgb(255 255 255 / 10%);
+  color: inherit;
+  font-size: inherit;
+  padding: 0.125rem 0.25rem;
+}
+
+.page-navigator-total {
+  white-space: nowrap;
 }
 
 .modal-overlay {
