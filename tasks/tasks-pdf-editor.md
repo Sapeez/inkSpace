@@ -22,7 +22,9 @@
 - `server/middleware/permissions.ts` - Converted from the current all-permissive `.js` stub to TS while its real logic (edit vs. view-only per attachment) is implemented — priority conversion per `agents/rules/typescript-standard.md` §5.
 - `supabase/migrations/XXXXXXXXXXXXXX_pdf_editor.sql` - Any schema additions still needed on top of the existing `shares` table (see Notes below).
 - `tests/filenameUtils.test.ts` - Unit tests for all filename/timestamp rules (F1–F6), including boundary cases.
-- `tests/PDFViewer.test.ts` - Tests for viewer rendering, navigation, and zoom controls.
+- `tests/PDFViewer.test.tsx` - Tests for `PDFViewer`'s own rendering/loading/error states.
+- `tests/PageNavigator.test.tsx` - Tests for prev/next navigation and the type-to-jump page input (split out of `PDFViewer.test.tsx` since navigation lives in its own component, `PageNavigator.tsx`, per task 1.5).
+- `tests/setup/jsdom.ts` - Per-file jsdom setup (`global-jsdom`) for component tests; deliberately *not* wired in process-wide via a `--import` flag, since that also applies to non-DOM test files run in their own child process (e.g. `permissions.test.ts`, which makes real network calls jsdom's globals broke).
 - `tests/Annotator.test.ts` - Tests for toolbar rendering, style controls, delete confirmation, and annotation CRUD.
 - `tests/SaveModal.test.ts` - Tests for modal states, validation feedback, and toast messages.
 - `tests/permissions.test.ts` - Unit tests for the server-side permission middleware.
@@ -63,7 +65,7 @@ After implementing each sub-task, before checking it off, run this full loop —
   - [x] 1.7 Add pan support so the user can drag the view when zoomed in (requirement V6).
   - [x] 1.8 Add a "Fit width" button that sets the zoom level so the page fills the viewer's width (requirement V7).
   - [x] 1.9 Confirm that print, search, and any other pdf.js default controls are hidden or disabled — these are explicitly out of scope (requirement V8).
-  - [ ] 1.10 Write `tests/PDFViewer.test.js`: test that the loading state appears, that navigation buttons work, and that the page-number input jumps to the correct page.
+  - [x] 1.10 Write `tests/PDFViewer.test.js`: test that the loading state appears, that navigation buttons work, and that the page-number input jumps to the correct page. (Implemented as `tests/PDFViewer.test.tsx` for the loading/error states and `tests/PageNavigator.test.tsx` for prev/next + page-jump, since navigation is `PageNavigator.tsx`, not `PDFViewer.tsx` — see Relevant Files.)
 
 - [ ] 2.0 Annotation Tools — full toolbar, global styling, select/move/resize/delete
   - [ ] 2.1 Install `fabric` (Fabric.js) as a client dependency (or Konva.js — pick one and use it throughout).

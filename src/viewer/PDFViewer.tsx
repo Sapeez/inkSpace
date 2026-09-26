@@ -29,18 +29,22 @@ export default function PDFViewer({ pdfDoc, loading: documentLoading, error: doc
   const viewerRef = useRef<HTMLDivElement>(null);
   const pagesContainerRef = useRef<HTMLDivElement>(null);
   const prevPdfDocRef = useRef<PDFDocumentProxy | null>(null);
-  const currentPdfDocRef = useRef<PDFDocumentProxy | null>(null);
   const lastVisiblePageRef = useRef<number | null>(null);
   const lastScrollLeftFractionRef = useRef(0);
+  const forceFlushLeftRef = useRef(false);
   const panStateRef = useRef<PanState | null>(null);
   const [rendering, setRendering] = useState(true);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
 
-  useEffect(() => {
-    currentPdfDocRef.current = pdfDoc;
-  }, [pdfDoc]);
+  // Deliberately assigned during render, not inside an effect: async callers
+  // like fitWidth() need the value as of the most recent render, and a passive
+  // effect would still be showing the previous one when their `await` resumes.
+  const latestPdfDocRef = useRef(pdfDoc);
+  latestPdfDocRef.current = pdfDoc;
+  const latestScaleRef = useRef(scale);
+  latestScaleRef.current = scale;
 
   function cancelPan() {
     const panState = panStateRef.current;
@@ -123,8 +127,14 @@ export default function PDFViewer({ pdfDoc, loading: documentLoading, error: doc
       const container = viewerRef.current;
       if (container) {
         lastVisiblePageRef.current = getMostVisiblePageNumber(container);
-        const scrollableWidth = container.scrollWidth - container.clientWidth;
-        lastScrollLeftFractionRef.current = scrollableWidth > 0 ? container.scrollLeft / scrollableWidth : 0;
+        if (forceFlushLeftRef.current) {
+          // A fitWidth() call already set lastScrollLeftFractionRef to 0 — don't
+          // clobber it with the pre-fit (possibly panned-right) scroll position.
+          forceFlushLeftRef.current = false;
+        } else {
+          const scrollableWidth = container.scrollWidth - container.clientWidth;
+          lastScrollLeftFractionRef.current = scrollableWidth > 0 ? container.scrollLeft / scrollableWidth : 0;
+        }
       }
       pagesContainerRef.current?.replaceChildren();
     };
@@ -143,7 +153,7 @@ export default function PDFViewer({ pdfDoc, loading: documentLoading, error: doc
     const targetDoc = pdfDoc;
     const targetScale = scale;
     const page = await targetDoc.getPage(1);
-    if (currentPdfDocRef.current !== targetDoc || scale !== targetScale) return;
+    if (latestPdfDocRef.current !== targetDoc || latestScaleRef.current !== targetScale) return;
 
     const availableWidth = viewerRef.current?.clientWidth ?? 0;
     const nativeWidth = page.getViewport({ scale: 1 }).width;
@@ -154,8 +164,12 @@ export default function PDFViewer({ pdfDoc, loading: documentLoading, error: doc
 
     // Floor, not round: fit-width must never overflow the viewer's width.
     const fitScale = Math.floor((availableWidth / nativeWidth) * 100) / 100;
+    const nextScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, fitScale));
+    if (nextScale === scale) return;
+
     lastScrollLeftFractionRef.current = 0;
-    setScale(Math.min(MAX_SCALE, Math.max(MIN_SCALE, fitScale)));
+    forceFlushLeftRef.current = true;
+    setScale(nextScale);
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {

@@ -192,7 +192,7 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 
 | Phase | Status |
 |---|---|
-| 1 — Viewer (V1–V8) | Done: render/scroll/loading/thumbnails, page navigator, zoom in/out, pan, fit-width, and confirmed absence of default pdf.js print/search UI (1.1–1.9). Task 1.10 (dedicated unit/integration tests for this phase) still open. |
+| 1 — Viewer (V1–V8) | Done (1.1–1.10): render/scroll/loading/thumbnails, page navigator, zoom in/out, pan, fit-width, confirmed absence of default pdf.js print/search UI, and component tests for `PDFViewer`/`PageNavigator`. |
 | 2 — Annotation tools (A1–A9) | Not started. `AnnotationCanvas.jsx` and `Toolbar.jsx` are structural stubs only; Fabric.js/Konva.js not installed. |
 | 3 — Download & Save (D1–D3, S1–S8, F1–F6) | Not started. `pdf-lib` not installed; `applyBurnIn`/`saveAttachment` are placeholder stubs (`server/services/burn-in.js`, `server/services/storage.ts`) tied to an old timestamp/watermark concept, not the annotation model above. |
 | 4 — Permissions & sharing (P1–P5) | Partial: `shares` table and `canRead`/`canWrite`/`canBurnIn` logic exist and are unit-tested (`tests/permissions.test.ts`). Identity is still the `x-user-id` header stub (see §4 gap). `ShareModal`, `NoAccessState`, and the grant endpoint are not built. |
