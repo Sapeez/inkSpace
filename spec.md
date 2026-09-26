@@ -129,21 +129,47 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   `savedStateRef` and `loadFromJSON`'d back permanently on the very next zoom-triggered rebuild, with no
   way to remove it until 2.14's delete tooling exists) and on every tool-switch (otherwise a stray
   editing cursor stays live until the next canvas click).
-- **Text Highlighter (A1, implemented)**: drag-to-place, not click or freehand —
-  `AnnotationCanvas.jsx`'s `DRAG_TO_PLACE_TOOLS` set (currently just `text-highlighter`; extend as 2.8+
-  drag-to-place shape tools land). The same consolidated `mouse:down` listener starts a drag
-  (`canvas.__highlightDrag`, tracking the start point and a zero-size `Rect` already added to the
-  canvas) when this tool is active and the click didn't land on an existing object; `mouse:move` resizes
-  that `Rect` to span the start and current scene points (normalizing to whichever corner is actually
-  top-left, regardless of drag direction); `mouse:up` finalizes it, discarding it if the drag was too
-  small (`MIN_DRAG_SIZE_SCREEN_PX`, checked in *screen* pixels via `rect.width/height * canvas.getZoom()`
-  — a fixed threshold in this canvas's zoom-dependent PDF-point space would let more incidental jitter
-  through at low zoom than at high zoom) to be a real highlight rather than an accidental click. The
-  rectangle is a filled, semi-transparent shape with no stroke — `fill: BASE_STROKE_COLOR`, a real
-  `opacity: HIGHLIGHTER_OPACITY` property (not baked into the fill color, matching the Freeform
-  Highlighter path's own `opacity` handling so both tools serialize the same way for burn-in later),
-  `stroke: null` — sharing the same opacity constant Freeform Highlighter uses (extracted so the two
-  tools' visual treatment can't drift apart by accident).
+- **Text Highlighter, Rectangle, Ellipse (A1/A2/A4, implemented)**: all three drag out a bounding box
+  rather than clicking or freehand-drawing. `AnnotationCanvas.jsx`'s `BOUNDS_SHAPE_TOOLS` config map
+  (one entry per tool: how to create the shape at zero size, how to resize it to a given box) drives one
+  shared mechanism (`startBoundsDrag`/`updateBoundsDrag`/`finishBoundsDrag`, tracking
+  `canvas.__boundsDrag`) instead of three near-duplicate ones — adding a future bounds-drag tool is a
+  new map entry, not new drag-handling code. `mouse:move` resizes the shape to span the start and
+  current scene points (normalizing to whichever corner is actually top-left, regardless of drag
+  direction); `mouse:up` finalizes it, discarding it if the drag was too small
+  (`MIN_DRAG_SIZE_SCREEN_PX`, checked in *screen* pixels via `width/height * canvas.getZoom()` — a fixed
+  threshold in this canvas's zoom-dependent PDF-point space would let more incidental jitter through at
+  low zoom than at high zoom) to be a real shape rather than an accidental click. Text Highlighter is a
+  filled, semi-transparent shape with no stroke — `fill: BASE_STROKE_COLOR`, a real
+  `opacity: HIGHLIGHTER_OPACITY` property (not baked into the fill color, so it stays a real property in
+  the serialized state for burn-in later) — sharing the same opacity constant Freeform Highlighter uses
+  (extracted so the two tools' visual treatment can't drift apart by accident). Rectangle and Ellipse are
+  the reverse — `fill: null` (A4's "fill default transparent" — an outline only, letting the page show
+  through), `stroke: BASE_STROKE_COLOR`/`strokeWidth: BASE_STROKE_WIDTH`, no dash array (A2: outlines
+  render solid). Ellipse's own `.width`/`.height` are derived from `rx`/`ry` (confirmed empirically, not
+  something this file has to keep in sync manually) — its `resize` sets `rx: width / 2, ry: height / 2`.
+- **Line, Arrow (A1/A2, implemented)**: drag between two points, not a bounding box — direction matters
+  (Arrow's head goes at the end point) and there's no "normalize to top-left corner" the way
+  Rectangle/Ellipse have, so this is a second mechanism
+  (`startLineDrag`/`updateLineDrag`/`finishLineDrag`, `canvas.__lineDrag`), not forced into
+  `BOUNDS_SHAPE_TOOLS`'s shape. Both rebuild the shape from scratch on every `mouse:move` rather than
+  mutating it in place — Fabric's `Line` does support live mutation (`.set({x2,y2})` + `.setCoords()`,
+  confirmed empirically), but Arrow's geometry (a compound `Path`) doesn't have an equivalent without
+  reaching into Fabric's path-parsing internals, so both use the same rebuild-each-move approach rather
+  than two different ones; an interactive drag creates at most a few dozen short-lived objects, not a
+  performance concern. Arrow (one-sided per A2 — arrowhead at the end point only) is a single `Path` with
+  two subpaths: the shaft (stopping short of the head's base so it doesn't visibly poke out past it) and
+  a filled triangle, sized proportional to `BASE_STROKE_WIDTH`, but clamped to at most half the arrow's
+  actual drag length — without that clamp, any arrow shorter than the head's full length would have its
+  head walk past the *start* point (on the far side of it, not between start and end), rendering an
+  oversized head that swallows the whole line plus a shaft segment sticking out backward past where the
+  user started dragging. Found by code review, confirmed empirically (hand-computed geometry for a
+  short drag, then re-verified in a real browser across every direction — horizontal, vertical, both
+  diagonals, and the short-arrow case specifically) before landing. One `Path` object, not a `Group` of
+  a `Line` + a separate arrowhead shape — serializes/burns-in (task 3.x) the same straightforward way
+  every other shape here does, no group-of-objects special-casing needed later. Discarding an accidental
+  click uses the straight-line distance between the two drag points (converted to screen pixels via
+  `canvas.getZoom()`) against the same `MIN_DRAG_SIZE_SCREEN_PX` threshold.
   **Implementation note (not itself a requirement, but load-bearing):** Fabric wraps whatever `<canvas>`
   element it's given in its own `.canvas-container` div (`position: relative` by default, holding a
   "lower" and "upper" canvas — only the upper one gets an explicit inline `position: absolute` from

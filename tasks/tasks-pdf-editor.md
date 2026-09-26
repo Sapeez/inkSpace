@@ -77,7 +77,7 @@ After implementing each sub-task, before checking it off, run this full loop —
   - [x] 2.5 Implement the Freeform Highlighter tool: same as pen but renders as a semi-transparent colored stroke.
   - [x] 2.6 Implement the Text tool: click to place a text box the user can type into.
   - [x] 2.7 Implement the Text Highlighter tool: drag a rectangle that highlights the area beneath it.
-  - [ ] 2.8 Implement Ellipse, Rectangle, Line, and Arrow shape tools; Arrow should be one-sided (arrowhead on one end only); all outlines render as solid (requirement A2).
+  - [x] 2.8 Implement Ellipse, Rectangle, Line, and Arrow shape tools; Arrow should be one-sided (arrowhead on one end only); all outlines render as solid (requirement A2).
   - [ ] 2.9 Implement the Cloud tool: a rectangle-based shape with a wavy/cloud border, positioned after the shape tools in the toolbar (requirement A7).
   - [ ] 2.10 Create `StyleControls.jsx`: three controls — color picker (default red), fill toggle/picker (default transparent), and stroke-width input (default 4pt). These settings are global (one set for all tools), and changing them affects future annotations only — not existing ones unless re-selected (requirement A4).
   - [ ] 2.11 Implement the Polygon tool: the user clicks to place vertices and closes the shape by clicking the first point.

@@ -156,9 +156,9 @@ test('the pen tool puts the canvas into free-drawing mode with the default red 4
   assert.equal(canvas.freeDrawingBrush.width, 4);
   assert.equal(canvas.upperCanvasEl.style.pointerEvents, 'auto');
 
-  // 'rectangle' isn't implemented yet (task 2.8) and isn't click-to-place
-  // either, so it's a genuinely non-interactive tool for this assertion.
-  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="rectangle" />);
+  // 'polygon' isn't implemented yet and isn't click-to-place either, so
+  // it's a genuinely non-interactive tool for this assertion.
+  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" />);
 
   assert.equal(canvas.isDrawingMode, false, 'switching away from pen must turn drawing mode off');
   assert.equal(canvas.upperCanvasEl.style.pointerEvents, 'none', 'and stop intercepting pointer input');
@@ -465,4 +465,191 @@ test('a tool switch away from text while a box is empty and mid-edit exits editi
   rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="pen" />);
 
   assert.equal(canvas.getObjects().length, 0, 'switching tools while empty must clean it up, not strand it mid-edit');
+});
+
+test('the rectangle tool drags out an unfilled outline rectangle (A4: fill default transparent)', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="rectangle" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  assert.equal(canvas.selection, false);
+
+  canvas.fire('mouse:down', { e: { clientX: 300, clientY: 350 }, target: null });
+  canvas.fire('mouse:move', { e: { clientX: 50, clientY: 150 } });
+  canvas.fire('mouse:up', {});
+
+  assert.equal(canvas.getObjects().length, 1);
+  const rect = canvas.getObjects()[0];
+  assert.equal(rect.left, 50, 'normalized to the top-left corner regardless of drag direction');
+  assert.equal(rect.top, 150);
+  assert.equal(rect.width, 250);
+  assert.equal(rect.height, 200);
+  assert.equal(rect.fill, null, 'A4: fill defaults to transparent');
+  assert.equal(rect.stroke, '#dc2626');
+  assert.equal(rect.strokeWidth, 4);
+  assert.ok(!rect.strokeDashArray, 'A2: outlines render solid only');
+});
+
+test('the ellipse tool drags out an unfilled outline ellipse sized to the drag box', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="ellipse" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 50, clientY: 100 }, target: null });
+  canvas.fire('mouse:move', { e: { clientX: 250, clientY: 200 } });
+  canvas.fire('mouse:up', {});
+
+  assert.equal(canvas.getObjects().length, 1);
+  const ellipse = canvas.getObjects()[0];
+  assert.equal(ellipse.left, 50);
+  assert.equal(ellipse.top, 100);
+  assert.equal(ellipse.rx, 100, 'half the drag width');
+  assert.equal(ellipse.ry, 50, 'half the drag height');
+  assert.equal(ellipse.fill, null, 'A4: fill defaults to transparent');
+  assert.equal(ellipse.stroke, '#dc2626');
+});
+
+test('a rectangle/ellipse drag too small to be real is discarded, not kept as a stray shape', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="rectangle" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 50, clientY: 50 }, target: null });
+  canvas.fire('mouse:up', {});
+
+  assert.equal(canvas.getObjects().length, 0);
+});
+
+test('the line tool drags out a straight line between the two drag points', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="line" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 20, clientY: 30 }, target: null });
+  canvas.fire('mouse:move', { e: { clientX: 220, clientY: 130 } });
+  canvas.fire('mouse:up', {});
+
+  assert.equal(canvas.getObjects().length, 1);
+  const line = canvas.getObjects()[0];
+  assert.equal(line.x1, 20);
+  assert.equal(line.y1, 30);
+  assert.equal(line.x2, 220);
+  assert.equal(line.y2, 130);
+  assert.equal(line.stroke, '#dc2626');
+  assert.equal(line.strokeWidth, 4);
+});
+
+test('the arrow tool drags out a one-sided arrow (a solid arrowhead only at the drag end point)', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="arrow" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 20, clientY: 30 }, target: null });
+  canvas.fire('mouse:move', { e: { clientX: 220, clientY: 30 } });
+  canvas.fire('mouse:up', {});
+
+  assert.equal(canvas.getObjects().length, 1);
+  const arrow = canvas.getObjects()[0];
+  assert.equal(arrow.type, 'path', 'a single Path, not a Group of a line + a separate arrowhead shape');
+  assert.equal(arrow.fill, '#dc2626', 'the arrowhead is a solid, filled triangle');
+  assert.equal(arrow.stroke, '#dc2626');
+  // Horizontal drag (20,30) -> (220,30): the arrow's bounding box should
+  // span the full drag width and be centered vertically around y=30, with
+  // some extra height for the arrowhead's width sticking out above/below
+  // the shaft line.
+  assert.ok(arrow.width >= 200, 'spans at least the full shaft length');
+  assert.ok(arrow.height > 0, 'the arrowhead adds height beyond the zero-height shaft alone');
+  assert.ok(!arrow.strokeDashArray, 'A2: outlines render solid only');
+});
+
+test('a short arrow (shorter than the head length) never lets the shaft overshoot past the start point', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="arrow" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  // Full arrowhead length (at BASE_STROKE_WIDTH=4) is 12 units; this drag is
+  // only 8 — shorter than the head, so the head must shrink to fit rather
+  // than walking its "back" point past the start of the drag.
+  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
+  canvas.fire('mouse:move', { e: { clientX: 108, clientY: 100 } });
+  canvas.fire('mouse:up', {});
+
+  assert.equal(canvas.getObjects().length, 1);
+  const arrow = canvas.getObjects()[0];
+  // The path's own bounding box must stay within (a small stroke-width
+  // margin around) the drag's start/end x-range — it must not extend to the
+  // left of the start point the way an unclamped 12-unit-long head would
+  // (back = 108 - 12 = 96, to the left of start = 100).
+  // An unclamped 12-unit-long head on an 8-unit drag would make the whole
+  // path noticeably wider than the drag itself (empirically ~12, vs. ~8 when
+  // correctly clamped to the drag's own length) — a small margin allows for
+  // stroke-width padding in Fabric's own bounding-box calculation without
+  // letting the actual bug (a head bigger than the drag) pass.
+  assert.ok(arrow.width <= 10, 'the head must be clamped to the drag length, not fixed-size and overshooting it');
+});
+
+test('a line/arrow drag too short to be real is discarded, not kept as a stray shape', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="arrow" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 50, clientY: 50 }, target: null });
+  canvas.fire('mouse:up', {});
+
+  assert.equal(canvas.getObjects().length, 0);
+});
+
+test('clicking an existing object with a shape tool active does not start a new drag on top of it', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="rectangle" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  const existing = new Rect({ left: 10, top: 10, width: 50, height: 50 });
+  canvas.add(existing);
+
+  canvas.fire('mouse:down', { e: { clientX: 30, clientY: 30 }, target: existing });
+  canvas.fire('mouse:move', { e: { clientX: 200, clientY: 200 } });
+  canvas.fire('mouse:up', {});
+
+  assert.equal(canvas.getObjects().length, 1, 'no new shape should have started on top of it');
 });

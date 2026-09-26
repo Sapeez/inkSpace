@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
-import { Canvas, PencilBrush, Rect, Textbox } from 'fabric';
+import { Canvas, Ellipse, Line, Path, PencilBrush, Rect, Textbox } from 'fabric';
 
 // Global style (A4) — color default red, stroke width default 4pt; every
 // free-drawing tool shares this base color/width. StyleControls (task 2.10)
@@ -47,13 +47,83 @@ function withAlpha(hexColor, alpha) {
 }
 
 // Text (A1) isn't free-drawing — it's click-to-place — but still needs the
-// overlay's pointer-events enabled to receive that click. Extend this set as
-// 2.8+ click-to-place tools land.
+// overlay's pointer-events enabled to receive that click.
 const CLICK_TO_PLACE_TOOLS = new Set(['text']);
-// Text Highlighter is drag-to-place (drag out a rectangle), not freehand or a
-// single click. Extend this set as 2.8+ drag-to-place shape tools land.
-const DRAG_TO_PLACE_TOOLS = new Set(['text-highlighter']);
+
+// Drag-to-place tools whose gesture is "drag out a bounding box" (as opposed
+// to Line/Arrow's "drag between two points", below). Each entry says how to
+// create the shape at zero size and how to resize it to a given box — same
+// per-tool style-config shape as TOOL_BRUSH_STYLES, generalized to cover
+// Rectangle/Ellipse/Text Highlighter without three near-duplicate drag
+// implementations. `fill: null` (Rectangle/Ellipse) means A4's "fill default
+// transparent" — an outline only, letting the page show through.
+const BOUNDS_SHAPE_TOOLS = {
+  'text-highlighter': {
+    create: (left, top) => new Rect({ left, top, width: 0, height: 0, fill: BASE_STROKE_COLOR, opacity: HIGHLIGHTER_OPACITY, stroke: null }),
+    resize: (shape, left, top, width, height) => shape.set({ left, top, width, height }),
+  },
+  rectangle: {
+    create: (left, top) => new Rect({ left, top, width: 0, height: 0, fill: null, stroke: BASE_STROKE_COLOR, strokeWidth: BASE_STROKE_WIDTH }),
+    resize: (shape, left, top, width, height) => shape.set({ left, top, width, height }),
+  },
+  ellipse: {
+    create: (left, top) => new Ellipse({ left, top, rx: 0, ry: 0, fill: null, stroke: BASE_STROKE_COLOR, strokeWidth: BASE_STROKE_WIDTH }),
+    // Ellipse's own width/height are derived from rx/ry (confirmed empirically
+    // — setting rx/ry keeps .width/.height in sync), not settable directly.
+    resize: (shape, left, top, width, height) => shape.set({ left, top, rx: width / 2, ry: height / 2 }),
+  },
+};
+
+const BOUNDS_SHAPE_TOOL_IDS = new Set(Object.keys(BOUNDS_SHAPE_TOOLS));
+
+// Line and Arrow are drag-to-place too, but "drag between two points" rather
+// than "drag out a bounding box" — a different enough gesture (direction
+// matters, there's no "normalize to top-left corner") that it gets its own
+// mechanism below rather than being forced into BOUNDS_SHAPE_TOOLS's shape.
+const POINT_TO_POINT_TOOLS = new Set(['line', 'arrow']);
+
+const DRAG_TO_PLACE_TOOLS = new Set([...BOUNDS_SHAPE_TOOL_IDS, ...POINT_TO_POINT_TOOLS]);
 const INTERACTIVE_TOOLS = new Set([...FREE_DRAWING_TOOLS, ...CLICK_TO_PLACE_TOOLS, ...DRAG_TO_PLACE_TOOLS]);
+
+// Arrow's head, in this canvas's PDF-point units — proportional to the base
+// stroke width so it stays visually in proportion if that constant changes.
+const ARROWHEAD_LENGTH = BASE_STROKE_WIDTH * 3;
+const ARROWHEAD_WIDTH = BASE_STROKE_WIDTH * 2.5;
+
+// A one-sided arrow (A2: arrowhead on one end only, at `end`): a single Path
+// with two subpaths — the shaft (stopping short of the head so it doesn't
+// poke out past the head's base) and a filled triangle. One object, not a
+// Group, so it serializes/burns-in the same straightforward way every other
+// shape here does.
+//
+// The head is clamped to at most half the arrow's actual length. Without
+// this, a drag shorter than ARROWHEAD_LENGTH would walk `back` past `start`
+// (on the far side of it, not between `start` and `end`) — an oversized
+// head that swallows the whole line plus a shaft segment sticking out
+// backward past where the user started dragging.
+function buildArrowPath(start, end) {
+  const totalLength = Math.hypot(end.x - start.x, end.y - start.y);
+  const headLength = Math.min(ARROWHEAD_LENGTH, totalLength / 2);
+  const headWidth = ARROWHEAD_WIDTH * (headLength / ARROWHEAD_LENGTH);
+
+  const angle = Math.atan2(end.y - start.y, end.x - start.x);
+  const backX = end.x - headLength * Math.cos(angle);
+  const backY = end.y - headLength * Math.sin(angle);
+  const perpX = -Math.sin(angle) * (headWidth / 2);
+  const perpY = Math.cos(angle) * (headWidth / 2);
+
+  const pathData = [
+    `M ${start.x} ${start.y} L ${backX} ${backY}`,
+    `M ${end.x} ${end.y} L ${backX + perpX} ${backY + perpY} L ${backX - perpX} ${backY - perpY} Z`,
+  ].join(' ');
+
+  return new Path(pathData, { fill: BASE_STROKE_COLOR, stroke: BASE_STROKE_COLOR, strokeWidth: BASE_STROKE_WIDTH });
+}
+
+function buildLineOrArrow(tool, start, end) {
+  if (tool === 'arrow') return buildArrowPath(start, end);
+  return new Line([start.x, start.y, end.x, end.y], { stroke: BASE_STROKE_COLOR, strokeWidth: BASE_STROKE_WIDTH });
+}
 
 const DEFAULT_TEXT_FONT_SIZE = 16;
 
@@ -137,52 +207,88 @@ function placeTextbox(canvas, screenEvent) {
   canvas.requestRenderAll();
 }
 
-// Text Highlighter: drag out a filled, semi-transparent rectangle over the
-// area the user wants to highlight — no stroke, since it's meant to look
-// like a highlight, not an outlined shape. `canvas.__highlightDrag` tracks
-// the in-progress drag between mouse:down and mouse:move/mouse:up (same
-// start/finish-at-different-events shape as free-drawing's `__strokeTool`,
-// just for a shape instead of a path).
-function startHighlightDrag(canvas, screenEvent) {
+// Bounding-box drag-to-place (Text Highlighter, Rectangle, Ellipse):
+// `canvas.__boundsDrag` tracks the in-progress drag between mouse:down and
+// mouse:move/mouse:up (same start/finish-at-different-events shape as
+// free-drawing's `__strokeTool`, just for a shape instead of a path). Width/
+// height are tracked on the drag state itself, not read back off the shape,
+// since not every shape type stores its own size the same way (Ellipse's
+// `.width`/`.height` are derived from `rx`/`ry`, confirmed empirically —
+// reading them back would work too, but tracking directly is shape-agnostic).
+function startBoundsDrag(canvas, tool, screenEvent) {
   const start = canvas.getScenePoint(screenEvent);
-  const rect = new Rect({
-    left: start.x,
-    top: start.y,
-    width: 0,
-    height: 0,
-    fill: BASE_STROKE_COLOR,
-    opacity: HIGHLIGHTER_OPACITY,
-    stroke: null,
-  });
-  canvas.add(rect);
-  canvas.__highlightDrag = { start, rect };
+  const shape = BOUNDS_SHAPE_TOOLS[tool].create(start.x, start.y);
+  canvas.add(shape);
+  canvas.__boundsDrag = { tool, start, shape, width: 0, height: 0 };
 }
 
-function updateHighlightDrag(canvas, screenEvent) {
-  const dragState = canvas.__highlightDrag;
+function updateBoundsDrag(canvas, screenEvent) {
+  const dragState = canvas.__boundsDrag;
   if (!dragState) return;
-  const { start, rect } = dragState;
+  const { tool, start, shape } = dragState;
   const current = canvas.getScenePoint(screenEvent);
-  rect.set({
-    left: Math.min(start.x, current.x),
-    top: Math.min(start.y, current.y),
-    width: Math.abs(current.x - start.x),
-    height: Math.abs(current.y - start.y),
-  });
+  const left = Math.min(start.x, current.x);
+  const top = Math.min(start.y, current.y);
+  const width = Math.abs(current.x - start.x);
+  const height = Math.abs(current.y - start.y);
+  BOUNDS_SHAPE_TOOLS[tool].resize(shape, left, top, width, height);
+  dragState.width = width;
+  dragState.height = height;
   canvas.requestRenderAll();
 }
 
-function finishHighlightDrag(canvas) {
-  const dragState = canvas.__highlightDrag;
-  canvas.__highlightDrag = null;
+function finishBoundsDrag(canvas) {
+  const dragState = canvas.__boundsDrag;
+  canvas.__boundsDrag = null;
   if (!dragState) return;
-  const { rect } = dragState;
-  // A drag too small to be a real highlight is an accidental click, not a
-  // shape the user actually wanted to keep. Convert back to screen pixels
-  // before comparing — see MIN_DRAG_SIZE_SCREEN_PX's comment.
+  const { shape, width, height } = dragState;
+  // A drag too small to be a real shape is an accidental click, not
+  // something the user actually wanted to keep. Convert back to screen
+  // pixels before comparing — see MIN_DRAG_SIZE_SCREEN_PX's comment.
   const zoom = canvas.getZoom();
-  if (rect.width * zoom < MIN_DRAG_SIZE_SCREEN_PX || rect.height * zoom < MIN_DRAG_SIZE_SCREEN_PX) {
-    canvas.remove(rect);
+  if (width * zoom < MIN_DRAG_SIZE_SCREEN_PX || height * zoom < MIN_DRAG_SIZE_SCREEN_PX) {
+    canvas.remove(shape);
+  }
+  canvas.requestRenderAll();
+}
+
+// Point-to-point drag-to-place (Line, Arrow): rebuilds the shape from
+// scratch on every move rather than mutating it in place. Line's own x1/y1/
+// x2/y2 + setCoords() do support live mutation (confirmed empirically), but
+// Arrow's geometry (a compound Path) doesn't have an equivalent "just move
+// the endpoint" API without reaching into Fabric's path-parsing internals —
+// rebuilding both the same way keeps this one mechanism instead of two, and
+// an interactive drag creates at most a few dozen short-lived objects, not a
+// performance concern.
+function startLineDrag(canvas, tool, screenEvent) {
+  const start = canvas.getScenePoint(screenEvent);
+  const shape = buildLineOrArrow(tool, start, start);
+  canvas.add(shape);
+  canvas.__lineDrag = { tool, start, current: start, shape };
+}
+
+function updateLineDrag(canvas, screenEvent) {
+  const dragState = canvas.__lineDrag;
+  if (!dragState) return;
+  const { tool, start, shape } = dragState;
+  const current = canvas.getScenePoint(screenEvent);
+  canvas.remove(shape);
+  const nextShape = buildLineOrArrow(tool, start, current);
+  canvas.add(nextShape);
+  dragState.shape = nextShape;
+  dragState.current = current;
+  canvas.requestRenderAll();
+}
+
+function finishLineDrag(canvas) {
+  const dragState = canvas.__lineDrag;
+  canvas.__lineDrag = null;
+  if (!dragState) return;
+  const { shape, start, current } = dragState;
+  const zoom = canvas.getZoom();
+  const lengthScreenPx = Math.hypot(current.x - start.x, current.y - start.y) * zoom;
+  if (lengthScreenPx < MIN_DRAG_SIZE_SCREEN_PX) {
+    canvas.remove(shape);
   }
   canvas.requestRenderAll();
 }
@@ -330,17 +436,21 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
 
           if (tool === 'text') {
             placeTextbox(canvas, event.e);
-          } else if (DRAG_TO_PLACE_TOOLS.has(tool) && !canvas.__highlightDrag) {
-            startHighlightDrag(canvas, event.e);
+          } else if (BOUNDS_SHAPE_TOOL_IDS.has(tool) && !canvas.__boundsDrag) {
+            startBoundsDrag(canvas, tool, event.e);
+          } else if (POINT_TO_POINT_TOOLS.has(tool) && !canvas.__lineDrag) {
+            startLineDrag(canvas, tool, event.e);
           }
         });
 
         canvas.on('mouse:move', (event) => {
-          updateHighlightDrag(canvas, event.e);
+          updateBoundsDrag(canvas, event.e);
+          updateLineDrag(canvas, event.e);
         });
 
         canvas.on('mouse:up', () => {
-          finishHighlightDrag(canvas);
+          finishBoundsDrag(canvas);
+          finishLineDrag(canvas);
         });
 
         const screenWidth = pdfCanvasEl.width;
