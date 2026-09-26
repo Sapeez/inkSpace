@@ -45,7 +45,7 @@
 ## Tasks
 
 - [ ] 1.0 PDF Viewer — render, scroll, thumbnails, zoom/pan, page navigation
-  - [ ] 1.1 Install `pdfjs-dist` (the npm package for pdf.js) as a client dependency.
+  - [x] 1.1 Install `pdfjs-dist` (the npm package for pdf.js) as a client dependency.
   - [ ] 1.2 Create `PDFViewer.jsx`: load a PDF from a signed URL, render pages to a `<canvas>` element using pdf.js, and show a visible loading indicator while the file is being fetched and rendered (requirement V2).
   - [ ] 1.3 Implement continuous scroll: render pages one below the other in a scrollable container so the user can scroll through the whole document (requirement V1).
   - [ ] 1.4 Create `ThumbnailPanel.jsx`: render small thumbnail previews of every page in a sidebar that is open by default; clicking a thumbnail scrolls the main view to that page (requirement V3).
