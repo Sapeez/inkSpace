@@ -228,6 +228,47 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   *after* the PDF canvas inside `.pdf-viewer-page` instead of overlaying it — found and fixed while
   implementing 2.4, but it was latent since 2.2 (nothing before 2.4 ever made the overlay visibly
   interactive enough to notice).
+- **Polygon (A1, implemented)**: click to place each vertex, close by clicking back on the first one —
+  neither free-drawing, a single click, nor a drag between two fixed points, so it's the first tool
+  whose gesture spans more than one `mouse:down` and gets its own tracking (`canvas.__polygonDrag`:
+  `vertices` (in scene/PDF-point space), the in-progress preview object, and the `style` captured at the
+  *first* click — kept fixed for the whole gesture, same reasoning as Line/Arrow and the bounds-drag
+  tools' drag-start style capture, so a style change picked mid-construction can't retroactively repaint
+  segments already placed). Every click after the first either adds a vertex or, if there are already at
+  least `MIN_POLYGON_VERTICES` (3) placed and the click lands within `CLOSE_POLYGON_SCREEN_PX` (10
+  screen pixels — deliberately larger than `MIN_DRAG_SIZE_SCREEN_PX`'s 4, since this is a deliberate
+  re-click on a specific existing point that needs to actually be clickable, not a jitter guard) of the
+  first vertex, closes the shape into a real Fabric `Polygon` (tagged `'polygon'`,
+  `fill`/`stroke`/`strokeWidth` from `style` exactly like Rectangle/Ellipse/Cloud) — unless the resulting
+  shape's own bounding box is smaller than `MIN_DRAG_SIZE_SCREEN_PX` in screen pixels (a handful of
+  near-identical rapid clicks, e.g. someone double/triple-clicking while unsure how the tool works), in
+  which case it's discarded instead of kept as a permanent, essentially invisible stray shape — same
+  reasoning as `finishBoundsDrag`/`finishLineDrag`'s size guard, and especially important here since
+  there's no delete tool yet (A5/A6 land in 2.13/2.14) to remove one otherwise. The closing-distance
+  check is done in *scene* space, converted to screen pixels via `canvas.getZoom()` at comparison time —
+  same as every other size/distance check in this file — rather than diffing the two clicks' raw
+  `clientX`/`clientY` directly: found by code review that the raw-client-diff version only holds if the
+  canvas element hasn't moved on screen between the two `mouse:down` events, which breaks if the page
+  scrolls mid-construction (an entirely ordinary interaction for a page taller than the viewport) even
+  though it happens to work at a fixed scroll position — fixed and covered by a regression test that
+  changes the stubbed bounding rect between two `mouse:down` calls to simulate a scroll. Closing early
+  (fewer than 3 vertices) is simply treated as placing another vertex near the first one, not as a no-op
+  or an error. The in-progress state is a `Polyline` — vertices
+  placed so far, plus (while the mouse is moving) a rubber-band segment to the current pointer position —
+  rebuilt from scratch on every `mouse:move`/vertex-add rather than mutated in place (same rebuild-each-
+  move approach as Line/Arrow), always unfilled regardless of `style.filled`: unlike Rectangle/Cloud's
+  in-progress drag (already the one real shape being resized), an open Polyline isn't a closed polygon
+  yet, so previewing a fill would show something that doesn't exist until the shape actually closes.
+  Every click after the first bypasses the usual "don't start on top of an existing object"
+  (`!event.target`) guard every other tool's *first* click respects — once a polygon is already under
+  construction, a continuation click landing on top of an unrelated existing annotation is still meant
+  for the polygon being built, not for that other object. Switching tools away from an in-progress
+  polygon, or a page reset (zoom/pan) landing mid-construction, discards the incomplete preview
+  (`cancelPolygonInProgress`, folded together with the pre-existing `exitActiveEditing` call into one
+  `cancelPendingGestures` helper used at all three call sites: the tool-switch effect, `handlePagesReset`,
+  and `handlePageRendered`'s existing-canvas branch) rather than leaving it on the canvas — otherwise
+  (same bug class 2.5 already fixed for an empty Textbox surviving a reset) an untagged, half-built
+  `Polyline` would get serialized into `savedStateRef` and reloaded back permanently on the next rescale.
 - Any placed annotation: select → move, resize, or delete (A5). Delete requires a confirmation modal,
   title exactly `"Delete annotation?"`, body exactly `"Are you sure you want to delete this
   annotation?"` (A6).
@@ -358,7 +399,7 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 | Phase | Status |
 |---|---|
 | 1 — Viewer (V1–V8) | Done (1.1–1.10): render/scroll/loading/thumbnails, page navigator, zoom in/out, pan, fit-width, confirmed absence of default pdf.js print/search UI, and component tests for `PDFViewer`/`PageNavigator`. |
-| 2 — Annotation tools (A1–A9) | Partial: Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). Pen/Freeform Highlighter (2.4/2.6), Text (2.5), Text Highlighter (2.7), Rectangle/Ellipse (2.8), Line/Arrow (2.8), Cloud (2.9), and the global style control (`StyleControls.tsx`, 2.10) are implemented. Not yet built: Polygon, Signature, select/move/resize/delete (A5/A6). |
+| 2 — Annotation tools (A1–A9) | Partial: Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). Pen/Freeform Highlighter (2.4/2.6), Text (2.5), Text Highlighter (2.7), Rectangle/Ellipse (2.8), Line/Arrow (2.8), Cloud (2.9), the global style control (`StyleControls.tsx`, 2.10), and Polygon (2.11) are implemented. Not yet built: Signature, select/move/resize/delete (A5/A6). |
 | 3 — Download & Save (D1–D3, S1–S8, F1–F6) | Not started. `pdf-lib` not installed; `applyBurnIn`/`saveAttachment` are placeholder stubs (`server/services/burn-in.js`, `server/services/storage.ts`) tied to an old timestamp/watermark concept, not the annotation model above. |
 | 4 — Permissions & sharing (P1–P5) | Partial: `shares` table and `canRead`/`canWrite`/`canBurnIn` logic exist and are unit-tested (`tests/permissions.test.ts`). Identity is still the `x-user-id` header stub (see §4 gap). `ShareModal`, `NoAccessState`, and the grant endpoint are not built. |
 | 5 — Hardening | Not started (depends on 2–4). |

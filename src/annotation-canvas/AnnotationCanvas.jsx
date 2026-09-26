@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
-import { Canvas, Ellipse, Line, Path, PencilBrush, Rect, Textbox } from 'fabric';
+import { Canvas, Ellipse, Line, Path, PencilBrush, Polygon, Polyline, Rect, Textbox } from 'fabric';
 
 // A4: color/fill/stroke-width are one *global* style, owned by ViewerPage.jsx
 // (StyleControls.tsx) and passed in as the `style` prop — not per-tool, not
@@ -105,8 +105,21 @@ const BOUNDS_SHAPE_TOOL_IDS = new Set(Object.keys(BOUNDS_SHAPE_TOOLS));
 // mechanism below rather than being forced into BOUNDS_SHAPE_TOOLS's shape.
 const POINT_TO_POINT_TOOLS = new Set(['line', 'arrow']);
 
+// Polygon (A1/A7-adjacent — click to place each vertex, close by clicking
+// back on the first one) is neither free-drawing, a single click, nor a
+// drag between two fixed points — it's a *sequence* of clicks, so it gets
+// its own membership set and its own gesture-tracking mechanism below
+// (`canvas.__polygonDrag`) rather than being forced into
+// BOUNDS_SHAPE_TOOLS or POINT_TO_POINT_TOOLS's shape.
+const MULTI_CLICK_TOOLS = new Set(['polygon']);
+
 const DRAG_TO_PLACE_TOOLS = new Set([...BOUNDS_SHAPE_TOOL_IDS, ...POINT_TO_POINT_TOOLS]);
-const INTERACTIVE_TOOLS = new Set([...FREE_DRAWING_TOOLS, ...CLICK_TO_PLACE_TOOLS, ...DRAG_TO_PLACE_TOOLS]);
+const INTERACTIVE_TOOLS = new Set([
+  ...FREE_DRAWING_TOOLS,
+  ...CLICK_TO_PLACE_TOOLS,
+  ...DRAG_TO_PLACE_TOOLS,
+  ...MULTI_CLICK_TOOLS,
+]);
 
 // Arrow's head, in this canvas's PDF-point units — proportional to the
 // current stroke width so it stays visually in proportion as that changes.
@@ -279,7 +292,7 @@ function applyStyleToObject(object, style) {
     // These are strokes (PencilBrush/Line output) — color lives in `stroke`,
     // not `fill`, unlike Text/Text Highlighter above.
     object.set({ stroke: style.color, strokeWidth: style.strokeWidth });
-  } else if (tool === 'rectangle' || tool === 'ellipse' || tool === 'cloud') {
+  } else if (tool === 'rectangle' || tool === 'ellipse' || tool === 'cloud' || tool === 'polygon') {
     object.set({ stroke: style.color, strokeWidth: style.strokeWidth, fill: style.filled ? style.color : null });
   }
 }
@@ -408,6 +421,155 @@ function finishLineDrag(canvas) {
   canvas.requestRenderAll();
 }
 
+// Closing a Polygon is a deliberate re-click on a specific existing point,
+// not an accidental-jitter guard (contrast MIN_DRAG_SIZE_SCREEN_PX above) —
+// it needs enough slack to actually be clickable, so this threshold is
+// larger. Checked in *scene* space, converted to screen pixels via
+// `canvas.getZoom()` at comparison time (same as every other distance/size
+// check in this file) — NOT by diffing the two clicks' raw `clientX`/
+// `clientY`. The naive raw-client-coordinate diff only holds if the canvas
+// element hasn't moved on screen between the two `mouse:down` events; a
+// polygon spans multiple clicks, and the page can legitimately scroll
+// between them (unlike zoom, which cancels any in-progress polygon via
+// `cancelPendingGestures` before it can matter — see PDFViewer.tsx's
+// `[pdfDoc, scale]` effect). Found by code review before landing.
+const CLOSE_POLYGON_SCREEN_PX = 10;
+
+// A polygon needs at least 3 vertices to be a real shape — closing on the
+// first click (0 or 1 other vertices placed) would either do nothing or
+// produce a degenerate 2-point "polygon", so closing is only honored once
+// at least a triangle's worth of vertices exist; a closing click before
+// that is instead treated as placing another vertex near the first one.
+const MIN_POLYGON_VERTICES = 3;
+
+// Rebuilds the in-progress preview from scratch (`vertices` plus, while the
+// mouse is still moving, a rubber-band segment to the current pointer
+// position) rather than mutating a Polyline's `points` in place — same
+// rebuild-each-move approach `updateLineDrag` uses for Arrow, for the same
+// reason: simpler than reaching into Fabric's internals to resize an
+// existing points-based shape correctly. The preview is `evented: false` so
+// it can never itself become `event.target` for a later click — otherwise a
+// continuation click landing on top of the rubber-band line would be
+// mistaken for "clicked an existing object" and get swallowed. It always
+// renders unfilled: unlike Rectangle/Cloud (whose in-progress drag *is*
+// already the real, single shape being resized), an open Polyline isn't a
+// real closed polygon yet, so previewing `style.filled`'s fill here would
+// show something that doesn't exist until the shape is actually closed.
+function rebuildPolygonPreview(canvas, dragState, previewPoint) {
+  canvas.remove(dragState.preview);
+  const points = previewPoint ? [...dragState.vertices, previewPoint] : [...dragState.vertices];
+  const preview = new Polyline(points, {
+    stroke: dragState.style.color,
+    strokeWidth: dragState.style.strokeWidth,
+    fill: null,
+    selectable: false,
+    evented: false,
+  });
+  canvas.add(preview);
+  dragState.preview = preview;
+}
+
+function startPolygon(canvas, screenEvent, style) {
+  const point = canvas.getScenePoint(screenEvent);
+  const dragState = {
+    vertices: [point],
+    preview: null,
+    style,
+  };
+  canvas.__polygonDrag = dragState;
+  rebuildPolygonPreview(canvas, dragState, point);
+  canvas.requestRenderAll();
+}
+
+function updatePolygonPreview(canvas, screenEvent) {
+  const dragState = canvas.__polygonDrag;
+  if (!dragState) return;
+  const point = canvas.getScenePoint(screenEvent);
+  rebuildPolygonPreview(canvas, dragState, point);
+  canvas.requestRenderAll();
+}
+
+function finishPolygon(canvas, dragState) {
+  canvas.remove(dragState.preview);
+  canvas.__polygonDrag = null;
+
+  // Same accidental-click guard every other drag-to-place tool has
+  // (MIN_DRAG_SIZE_SCREEN_PX) — without it, a few near-identical rapid
+  // clicks (e.g. double/triple-clicking while unsure how the tool works)
+  // would satisfy both MIN_POLYGON_VERTICES and the closing radius and
+  // permanently add a degenerate, essentially invisible Polygon that — with
+  // no delete tool yet (A5/A6 land in 2.13/2.14) — the user would have no
+  // way to remove. Found by code review before landing.
+  const xs = dragState.vertices.map((vertex) => vertex.x);
+  const ys = dragState.vertices.map((vertex) => vertex.y);
+  const width = Math.max(...xs) - Math.min(...xs);
+  const height = Math.max(...ys) - Math.min(...ys);
+  const zoom = canvas.getZoom();
+  if (width * zoom < MIN_DRAG_SIZE_SCREEN_PX || height * zoom < MIN_DRAG_SIZE_SCREEN_PX) {
+    canvas.requestRenderAll();
+    return;
+  }
+
+  const polygon = tag(
+    new Polygon(dragState.vertices, {
+      fill: dragState.style.filled ? dragState.style.color : null,
+      stroke: dragState.style.color,
+      strokeWidth: dragState.style.strokeWidth,
+    }),
+    'polygon',
+  );
+  canvas.add(polygon);
+  canvas.requestRenderAll();
+}
+
+// Called on every `mouse:down` while a polygon is already in progress —
+// either closes it (clicking back on the first vertex, once there are
+// enough vertices to be a real shape) or adds `point` as a new vertex.
+// The closing check is done in scene space, converted to screen pixels via
+// `canvas.getZoom()` — see CLOSE_POLYGON_SCREEN_PX's comment for why this
+// must not diff the two clicks' raw `clientX`/`clientY` instead.
+function continuePolygon(canvas, screenEvent) {
+  const dragState = canvas.__polygonDrag;
+  const point = canvas.getScenePoint(screenEvent);
+  const firstVertex = dragState.vertices[0];
+  const closingDistanceScreenPx = Math.hypot(point.x - firstVertex.x, point.y - firstVertex.y) * canvas.getZoom();
+
+  if (dragState.vertices.length >= MIN_POLYGON_VERTICES && closingDistanceScreenPx <= CLOSE_POLYGON_SCREEN_PX) {
+    finishPolygon(canvas, dragState);
+    return;
+  }
+
+  dragState.vertices.push(point);
+  rebuildPolygonPreview(canvas, dragState);
+  canvas.requestRenderAll();
+}
+
+// Switching tools away from Polygon mid-construction, or a page reset
+// (zoom/pan) landing mid-construction, must discard the incomplete preview
+// rather than leave it on the canvas — otherwise (same bug class as an
+// empty Textbox surviving a reset, see exitActiveEditing's comment) an
+// untagged, half-built Polyline would get serialized into `savedStateRef`
+// and reloaded back permanently on the next rescale.
+function cancelPolygonInProgress(canvas) {
+  const dragState = canvas.__polygonDrag;
+  if (!dragState) return;
+  canvas.remove(dragState.preview);
+  canvas.__polygonDrag = null;
+}
+
+// Combines the "abandon whatever gesture is mid-flight" cleanups this file
+// currently guards against surviving a reset or tool switch — in-progress
+// text editing and an in-progress polygon — so the three call sites below
+// don't have to remember to call both individually. Does NOT cover
+// `canvas.__boundsDrag`/`__lineDrag` (a pre-existing gap, not introduced
+// here): those drag gestures live entirely within one continuous
+// mouse-down-to-mouse-up span, so they can't straddle a tool switch or a
+// reset the way multi-click/mid-edit gestures can.
+function cancelPendingGestures(canvas) {
+  exitActiveEditing(canvas);
+  cancelPolygonInProgress(canvas);
+}
+
 // PDFViewer.tsx owns the actual page DOM and rebuilds it wholesale on every
 // zoom/document change (it has no stable per-page DOM to attach to across
 // scale changes). Rather than guessing at that timing via a MutationObserver,
@@ -444,14 +606,15 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
     pdfDocRef.current = pdfDoc;
   }
 
-  // Switching tools force-exits any in-progress text editing (see
-  // exitActiveEditing's comment) — but a style change alone must not, or
-  // touching a color/fill/stroke-width control while mid-typing would kick
-  // the user out of editing (and delete the box outright, via the same
-  // `editing:exited` cleanup, if it's still empty). Kept as its own effect,
-  // keyed on `[activeTool]` only, so it never re-runs for a `style` change.
+  // Switching tools force-exits any in-progress text editing and discards
+  // any in-progress polygon (see exitActiveEditing's and
+  // cancelPolygonInProgress's comments) — but a style change alone must not,
+  // or touching a color/fill/stroke-width control mid-gesture would
+  // interrupt it (and, for an empty text box, delete it outright via the
+  // same `editing:exited` cleanup). Kept as its own effect, keyed on
+  // `[activeTool]` only, so it never re-runs for a `style` change.
   useEffect(() => {
-    canvasesRef.current.forEach((canvas) => exitActiveEditing(canvas));
+    canvasesRef.current.forEach((canvas) => cancelPendingGestures(canvas));
   }, [activeTool]);
 
   useEffect(() => {
@@ -491,8 +654,8 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
 
       handlePagesReset() {
         canvasesRef.current.forEach((canvas, pageNumber) => {
-          // Must run before toJSON() — see exitActiveEditing's comment.
-          exitActiveEditing(canvas);
+          // Must run before toJSON() — see cancelPendingGestures's comment.
+          cancelPendingGestures(canvas);
           savedStateRef.current.set(pageNumber, canvas.toJSON(['annotationTool']));
           canvas.dispose();
         });
@@ -505,7 +668,7 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
 
         const existing = canvasesRef.current.get(pageNumber);
         if (existing) {
-          exitActiveEditing(existing);
+          cancelPendingGestures(existing);
           savedStateRef.current.set(pageNumber, existing.toJSON(['annotationTool']));
           existing.dispose();
           canvasesRef.current.delete(pageNumber);
@@ -573,6 +736,17 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
           canvas.__strokeTool = tool;
           canvas.__strokeStyle = currentStyle;
 
+          // A polygon already in progress takes every subsequent click
+          // (adding a vertex or closing the shape) regardless of what's
+          // under the cursor — unlike every other tool below, Polygon's
+          // gesture spans more than one `mouse:down`, and a click landing on
+          // top of an existing annotation partway through is still meant
+          // for the polygon being built, not for that other object.
+          if (tool === 'polygon' && canvas.__polygonDrag) {
+            continuePolygon(canvas, event.e);
+            return;
+          }
+
           // Clicking an existing object (e.g. an already-placed text box or
           // highlight) should select/move it (or, for a text box already
           // selected, enter editing on this second click — Fabric's own
@@ -582,6 +756,8 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
 
           if (tool === 'text') {
             placeTextbox(canvas, event.e, currentStyle);
+          } else if (tool === 'polygon') {
+            startPolygon(canvas, event.e, currentStyle);
           } else if (BOUNDS_SHAPE_TOOL_IDS.has(tool) && !canvas.__boundsDrag) {
             startBoundsDrag(canvas, tool, event.e, currentStyle);
           } else if (POINT_TO_POINT_TOOLS.has(tool) && !canvas.__lineDrag) {
@@ -592,6 +768,7 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
         canvas.on('mouse:move', (event) => {
           updateBoundsDrag(canvas, event.e);
           updateLineDrag(canvas, event.e);
+          updatePolygonPreview(canvas, event.e);
         });
 
         canvas.on('mouse:up', () => {

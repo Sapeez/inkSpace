@@ -157,9 +157,10 @@ test('the pen tool puts the canvas into free-drawing mode with the default red 4
   assert.equal(canvas.freeDrawingBrush.width, 4);
   assert.equal(canvas.upperCanvasEl.style.pointerEvents, 'auto');
 
-  // 'polygon' isn't implemented yet and isn't click-to-place either, so
-  // it's a genuinely non-interactive tool for this assertion.
-  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="polygon" />);
+  // 'signature' isn't implemented yet and isn't click-to-place either, so
+  // it's a genuinely non-interactive tool for this assertion ('polygon' no
+  // longer is, as of 2.11).
+  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="signature" />);
 
   assert.equal(canvas.isDrawingMode, false, 'switching away from pen must turn drawing mode off');
   assert.equal(canvas.upperCanvasEl.style.pointerEvents, 'none', 'and stop intercepting pointer input');
@@ -225,17 +226,17 @@ test('a stroke keeps the opacity of the tool active when it started, even if the
   );
 });
 
-function stubBoundingClientRect(canvas: any, width: number, height: number) {
+function stubBoundingClientRect(canvas: any, width: number, height: number, left = 0, top = 0) {
   // jsdom returns an all-zero rect by default, which degenerates the
-  // scene-point math this canvas's click-to-place tools rely on.
-  canvas.upperCanvasEl.getBoundingClientRect = () => ({
-    left: 0,
-    top: 0,
-    width,
-    height,
-    right: width,
-    bottom: height,
-  });
+  // scene-point math this canvas's click-to-place tools rely on. `left`/
+  // `top` default to 0 but can be overridden to simulate the canvas
+  // element having moved on screen (e.g. a page scroll) between two calls.
+  // Fabric's own offset calculation (`calcOffset`, used internally by
+  // `getScenePoint`) reads `lowerCanvasEl`'s rect, not `upperCanvasEl`'s —
+  // both are stubbed here so a test doesn't have to know that distinction.
+  const rect = () => ({ left, top, width, height, right: left + width, bottom: top + height });
+  canvas.upperCanvasEl.getBoundingClientRect = rect;
+  canvas.lowerCanvasEl.getBoundingClientRect = rect;
 }
 
 test('the text tool places an empty, editable Textbox at the clicked point in canvas coordinates', async () => {
@@ -922,4 +923,226 @@ test('changing the global style while a text box is empty and still mid-edit doe
   // alive indefinitely (node --test never exits, no other test in this file
   // leaves an object mid-edit at its end for the same reason).
   textbox.exitEditing();
+});
+
+test('the polygon tool places vertices on each click and closes into a real Polygon when clicking back on the first vertex', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={DEFAULT_ANNOTATION_STYLE} />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
+  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 100 }, target: null });
+  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 200 }, target: null });
+  // Close by clicking back near (not exactly on) the first vertex.
+  canvas.fire('mouse:down', { e: { clientX: 103, clientY: 98 }, target: null });
+
+  assert.equal(canvas.getObjects().length, 1, 'the in-progress preview must be gone, replaced by exactly one finished shape');
+  const polygon = canvas.getObjects()[0];
+  assert.equal(polygon.type, 'polygon');
+  assert.equal(polygon.points.length, 3, 'the closing click is not itself a 4th vertex');
+  assert.equal(polygon.points[0].x, 100);
+  assert.equal(polygon.points[0].y, 100);
+  assert.equal(polygon.points[1].x, 200);
+  assert.equal(polygon.points[2].y, 200);
+  assert.equal(polygon.stroke, '#dc2626');
+  assert.equal(polygon.strokeWidth, 4);
+  assert.equal(polygon.fill, null, 'A4: fill defaults to transparent');
+});
+
+test('a filled global style produces a filled closed polygon', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(
+    <AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={CUSTOM_STYLE} />,
+  );
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
+  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 100 }, target: null });
+  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 200 }, target: null });
+  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
+
+  const polygon = canvas.getObjects()[0];
+  assert.equal(polygon.fill, '#2563eb', 'style.filled=true fills with the global color, same as Rectangle/Ellipse/Cloud');
+  assert.equal(polygon.strokeWidth, 10);
+});
+
+test('clicking back on the first vertex with fewer than 3 vertices placed does not close the polygon — it adds a vertex instead', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={DEFAULT_ANNOTATION_STYLE} />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
+  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 100 }, target: null });
+  // Only 2 vertices exist — clicking back on the first is too early to close.
+  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
+
+  assert.equal(canvas.getObjects().length, 1, 'still just the in-progress preview, not a finished polygon');
+  const preview = canvas.getObjects()[0];
+  assert.equal(preview.annotationTool, undefined, 'the preview is not a real, tagged annotation yet');
+});
+
+test('clicking an existing object mid-construction still adds a vertex/closes, rather than being swallowed', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={DEFAULT_ANNOTATION_STYLE} />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  const existing = new Rect({ left: 10, top: 10, width: 500, height: 500 });
+  canvas.add(existing);
+
+  // The *starting* click still respects the usual "don't start on top of an
+  // existing object" guard, same as every other tool — it's only once a
+  // polygon is already in progress that later clicks bypass it.
+  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
+  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 100 }, target: existing });
+  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 200 }, target: existing });
+  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: existing });
+
+  const polygon = canvas.getObjects().find((o: any) => o.annotationTool === 'polygon');
+  assert.ok(polygon, 'the polygon must still get built despite continuation clicks landing on top of an existing object');
+  assert.equal(polygon.points.length, 3);
+});
+
+test('switching tools away from an in-progress polygon discards the incomplete preview', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  const { rerender } = render(
+    <AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={DEFAULT_ANNOTATION_STYLE} />,
+  );
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
+  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 100 }, target: null });
+  assert.equal(canvas.getObjects().length, 1, 'the in-progress preview exists');
+
+  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="pen" style={DEFAULT_ANNOTATION_STYLE} />);
+
+  assert.equal(canvas.getObjects().length, 0, 'switching tools mid-polygon must not strand the incomplete preview');
+});
+
+test('an in-progress polygon does not survive a page reset (regression, same bug class as an empty text box)', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={DEFAULT_ANNOTATION_STYLE} />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
+  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 100 }, target: null });
+  assert.equal(canvas.getObjects().length, 1);
+
+  ref.current.handlePagesReset();
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const reloadedCanvas = ref.current.getCanvas(1);
+
+  assert.equal(reloadedCanvas.getObjects().length, 0, 'an incomplete polygon preview must not be serialized/reloaded back');
+});
+
+test('changing the global style while a polygon is being constructed does not retroactively restyle already-placed segments (drag-start capture)', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  const { rerender } = render(
+    <AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={DEFAULT_ANNOTATION_STYLE} />,
+  );
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
+  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 100 }, target: null });
+
+  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={CUSTOM_STYLE} />);
+
+  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 200 }, target: null });
+  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
+
+  const polygon = canvas.getObjects()[0];
+  assert.equal(polygon.stroke, '#dc2626', 'the polygon started under the old style, so it must finish in that style, not one picked mid-construction');
+});
+
+test('closing the polygon still works correctly after the page scrolls mid-construction (regression)', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={DEFAULT_ANNOTATION_STYLE} />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  // Vertex 1, placed before any scroll.
+  canvas.fire('mouse:down', { e: { clientX: 150, clientY: 200 }, target: null });
+
+  // The page scrolls: the canvas element's on-screen position shifts (its
+  // bounding rect's `top` moves), so the same scene point now arrives at a
+  // different `clientY` than it would have before the scroll.
+  stubBoundingClientRect(canvas, 600, 800, 0, -300);
+
+  canvas.fire('mouse:down', { e: { clientX: 250, clientY: -200 }, target: null });
+  canvas.fire('mouse:down', { e: { clientX: 250, clientY: -100 }, target: null });
+
+  // Close by clicking the *same scene position* as vertex 1, expressed in
+  // the post-scroll client coordinate space (not vertex 1's own stale
+  // `clientX`/`clientY` from before the scroll).
+  canvas.fire('mouse:down', { e: { clientX: 150, clientY: -100 }, target: null });
+
+  const polygon = canvas.getObjects()[0];
+  assert.equal(
+    polygon.type,
+    'polygon',
+    'the polygon must still close correctly across a scroll, not silently add a 4th vertex instead',
+  );
+  assert.equal(polygon.points.length, 3);
+});
+
+test('rapid clicks that never move far from the first vertex do not create a stray degenerate polygon (regression)', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={DEFAULT_ANNOTATION_STYLE} />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  // Four clicks, all within a couple of screen pixels of each other — e.g.
+  // a user double/triple-clicking while unsure how the tool works.
+  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
+  canvas.fire('mouse:down', { e: { clientX: 101, clientY: 100 }, target: null });
+  canvas.fire('mouse:down', { e: { clientX: 101, clientY: 101 }, target: null });
+  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
+
+  assert.equal(
+    canvas.getObjects().length,
+    0,
+    'a degenerate, essentially zero-size polygon must not be kept — there is no delete tool yet to remove it',
+  );
 });

@@ -80,7 +80,7 @@ After implementing each sub-task, before checking it off, run this full loop —
   - [x] 2.8 Implement Ellipse, Rectangle, Line, and Arrow shape tools; Arrow should be one-sided (arrowhead on one end only); all outlines render as solid (requirement A2).
   - [x] 2.9 Implement the Cloud tool: a rectangle-based shape with a wavy/cloud border, positioned after the shape tools in the toolbar (requirement A7).
   - [x] 2.10 Create `StyleControls.jsx`: three controls — color picker (default red), fill toggle/picker (default transparent), and stroke-width input (default 4pt). These settings are global (one set for all tools), and changing them affects future annotations only — not existing ones unless re-selected (requirement A4).
-  - [ ] 2.11 Implement the Polygon tool: the user clicks to place vertices and closes the shape by clicking the first point.
+  - [x] 2.11 Implement the Polygon tool: the user clicks to place vertices and closes the shape by clicking the first point.
   - [ ] 2.12 Create `SignatureUploader.jsx`: a button that opens a file-picker restricted to image files; on upload, validate type and size (client-side), re-encode the image, then place it on the canvas at a default size the user can move and resize (requirements A8, R8).
   - [ ] 2.13 Implement selection: clicking any placed annotation selects it and shows resize handles; the selected annotation can be dragged to a new position or resized by dragging a handle (requirement A5).
   - [ ] 2.14 Create `DeleteConfirmModal.jsx`: triggered when the user presses Delete (or a delete button) on a selected annotation; modal title must be exactly "Delete annotation?" and body text "Are you sure you want to delete this annotation?" with Confirm and Cancel actions (requirement A6).
