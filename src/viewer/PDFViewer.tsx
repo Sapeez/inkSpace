@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
-import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
+import type { RenderTask } from 'pdfjs-dist';
 import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { fetchAttachment } from '../lib/index.js';
 
@@ -25,18 +25,19 @@ interface PDFViewerProps {
 }
 
 export default function PDFViewer({ attachmentId }: PDFViewerProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pagesContainerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    let pdfDoc: PDFDocumentProxy | null = null;
-    let renderTask: RenderTask | null = null;
+    const renderTasks: RenderTask[] = [];
+    let pdfDoc: import('pdfjs-dist').PDFDocumentProxy | null = null;
 
     async function load() {
       setLoading(true);
       setError(null);
+      pagesContainerRef.current?.replaceChildren();
 
       try {
         const attachment: unknown = await fetchAttachment(attachmentId);
@@ -46,21 +47,29 @@ export default function PDFViewer({ attachmentId }: PDFViewerProps) {
         if (cancelled) return;
 
         pdfDoc = await getDocument(attachment.url).promise;
-        if (cancelled) return;
+        if (cancelled) {
+          void pdfDoc.destroy();
+          return;
+        }
 
-        const page = await pdfDoc.getPage(1);
-        if (cancelled) return;
+        for (let pageNumber = 1; pageNumber <= pdfDoc.numPages; pageNumber += 1) {
+          if (cancelled) return;
 
-        const viewport = page.getViewport({ scale: 1 });
-        const canvas = canvasRef.current;
-        if (!canvas) return;
+          const page = await pdfDoc.getPage(pageNumber);
+          if (cancelled) return;
 
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
+          const viewport = page.getViewport({ scale: 1 });
+          const canvas = document.createElement('canvas');
+          canvas.className = 'pdf-viewer-canvas';
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          pagesContainerRef.current?.appendChild(canvas);
 
-        renderTask = page.render({ canvas, viewport });
-        await renderTask.promise;
-        if (cancelled) return;
+          const renderTask = page.render({ canvas, viewport });
+          renderTasks.push(renderTask);
+          await renderTask.promise;
+          if (cancelled) return;
+        }
 
         setLoading(false);
       } catch (err) {
@@ -74,8 +83,9 @@ export default function PDFViewer({ attachmentId }: PDFViewerProps) {
 
     return () => {
       cancelled = true;
-      renderTask?.cancel();
+      renderTasks.forEach((task) => task.cancel());
       void pdfDoc?.destroy();
+      pagesContainerRef.current?.replaceChildren();
     };
   }, [attachmentId]);
 
@@ -91,7 +101,7 @@ export default function PDFViewer({ attachmentId }: PDFViewerProps) {
           {error}
         </div>
       )}
-      <canvas ref={canvasRef} className="pdf-viewer-canvas" />
+      <div className="pdf-viewer-pages" ref={pagesContainerRef} />
     </div>
   );
 }
