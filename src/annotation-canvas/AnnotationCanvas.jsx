@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
-import { Canvas, PencilBrush } from 'fabric';
+import { Canvas, PencilBrush, Textbox } from 'fabric';
 
 // Global style (A4) — color default red, stroke width default 4pt; every
 // free-drawing tool shares this base color/width. StyleControls (task 2.10)
@@ -22,21 +22,72 @@ const TOOL_BRUSH_STYLES = {
 };
 const FREE_DRAWING_TOOLS = new Set(Object.keys(TOOL_BRUSH_STYLES));
 
+function withAlpha(hexColor, alpha) {
+  const r = parseInt(hexColor.slice(1, 3), 16);
+  const g = parseInt(hexColor.slice(3, 5), 16);
+  const b = parseInt(hexColor.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// Text (A1) isn't free-drawing — it's click-to-place — but still needs the
+// overlay's pointer-events enabled to receive that click. Extend this set as
+// 2.7+ click/drag-to-place tools (shapes, cloud, polygon, signature) land.
+const CLICK_TO_PLACE_TOOLS = new Set(['text']);
+const INTERACTIVE_TOOLS = new Set([...FREE_DRAWING_TOOLS, ...CLICK_TO_PLACE_TOOLS]);
+
+const DEFAULT_TEXT_FONT_SIZE = 16;
+
 function applyActiveTool(canvas, activeTool) {
   const isFreeDrawing = FREE_DRAWING_TOOLS.has(activeTool);
   canvas.isDrawingMode = isFreeDrawing;
   if (isFreeDrawing) {
     if (!canvas.freeDrawingBrush) canvas.freeDrawingBrush = new PencilBrush(canvas);
-    canvas.freeDrawingBrush.color = BASE_STROKE_COLOR;
+    // Bake opacity into the *live* brush color so the in-progress stroke
+    // previews at the right transparency while dragging (Fabric paints the
+    // live drag to a separate top context, at the brush's raw color, and
+    // only creates the real Path object on mouse-up) — path:created below
+    // then resets the finished object back to a solid stroke + a real
+    // `opacity` property, so both the live preview and the serialized state
+    // are correct, not just one or the other.
+    canvas.freeDrawingBrush.color = withAlpha(BASE_STROKE_COLOR, TOOL_BRUSH_STYLES[activeTool].opacity);
     canvas.freeDrawingBrush.width = BASE_STROKE_WIDTH;
     // All line-based marks render solid only (A2) — never set strokeDashArray.
   }
 
-  // No tool needs pointer input yet unless it free-draws (selection/move/
-  // resize lands in 2.13). Keep the overlay out of the way of pan/zoom-
-  // controls clicks otherwise. `lowerCanvasEl` never needs pointer input —
-  // Fabric never attaches listeners to it — set once, not part of the toggle.
-  canvas.upperCanvasEl.style.pointerEvents = isFreeDrawing ? 'auto' : 'none';
+  // Keep the overlay out of the way of pan/zoom-controls clicks unless the
+  // active tool actually needs pointer input (free-drawing or click-to-place).
+  // `lowerCanvasEl` never needs pointer input — Fabric never attaches
+  // listeners to it — set once at canvas creation, not part of this toggle.
+  canvas.upperCanvasEl.style.pointerEvents = INTERACTIVE_TOOLS.has(activeTool) ? 'auto' : 'none';
+}
+
+// Places a Textbox at the clicked point (already in this canvas's own PDF-
+// point coordinate space — `canvas.getScenePoint` accounts for the current
+// zoom, so no manual scale math is needed here, same Risk R1 guarantee as
+// everything else in this file) and drops the user straight into editing it.
+function placeTextbox(canvas, screenEvent) {
+  const point = canvas.getScenePoint(screenEvent);
+  const textbox = new Textbox('', {
+    left: point.x,
+    top: point.y,
+    fontSize: DEFAULT_TEXT_FONT_SIZE,
+    fill: BASE_STROKE_COLOR,
+  });
+  canvas.add(textbox);
+  canvas.setActiveObject(textbox);
+  textbox.enterEditing();
+  textbox.selectAll();
+
+  // A box the user clicked away from without typing anything shouldn't
+  // linger as an empty, selectable-but-invisible annotation.
+  textbox.on('editing:exited', () => {
+    if (!textbox.text.trim()) {
+      canvas.remove(textbox);
+      canvas.requestRenderAll();
+    }
+  });
+
+  canvas.requestRenderAll();
 }
 
 // PDFViewer.tsx owns the actual page DOM and rebuilds it wholesale on every
@@ -136,24 +187,44 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
           selection: true,
         });
 
-        // While a free-drawing tool is active, a drag on this canvas must
-        // draw, not pan the (scale > 1) view beneath it — PDFViewer.tsx's
-        // pan handler listens on an ancestor (`.pdf-viewer`), so stopping
-        // propagation here is what keeps the two from firing on the same
-        // gesture. Checked live via `canvas.isDrawingMode`, not captured at
-        // attach time, so it stays correct across tool changes.
+        // While an interactive tool is active, a pointerdown on this canvas
+        // must go to Fabric, not also start PDFViewer.tsx's pan gesture on
+        // the ancestor `.pdf-viewer` (which calls setPointerCapture — once
+        // captured, even Fabric's *mouse* events, which is what it actually
+        // listens for, get redirected to the capturing element per the
+        // Pointer Events spec's compatibility-event rules, breaking both
+        // drawing and click-to-place). Checked live via `activeToolRef`, not
+        // captured at attach time, so it stays correct across tool changes.
         canvas.upperCanvasEl.addEventListener('pointerdown', (event) => {
-          if (canvas.isDrawingMode) event.stopPropagation();
+          if (INTERACTIVE_TOOLS.has(activeToolRef.current)) event.stopPropagation();
         });
         // Set once: this canvas never needs to receive pointer input itself
         // (Fabric only ever attaches listeners to upperCanvasEl), independent
         // of which tool is active.
         canvas.lowerCanvasEl.style.pointerEvents = 'none';
 
+        // A stroke can take real time to draw; the active tool could change
+        // mid-stroke (e.g. Tab-focus + Enter on a toolbar button while the
+        // mouse is still held down elsewhere). Capture which tool a stroke
+        // belongs to when it *starts*, and use that in path:created — not
+        // whatever's active when the mouse happens to come up — so a stroke
+        // drawn as Pen can't retroactively get tagged as the Highlighter's.
+        canvas.on('mouse:down', () => {
+          canvas.__strokeTool = activeToolRef.current;
+        });
+
         canvas.on('path:created', ({ path }) => {
-          const style = TOOL_BRUSH_STYLES[activeToolRef.current];
-          if (style) path.set({ opacity: style.opacity });
+          const style = TOOL_BRUSH_STYLES[canvas.__strokeTool];
+          if (style) path.set({ stroke: BASE_STROKE_COLOR, opacity: style.opacity });
           canvas.requestRenderAll();
+        });
+
+        canvas.on('mouse:down', (event) => {
+          // Clicking an existing object (e.g. an already-placed text box)
+          // should select/edit it, not stack a new one on top of it.
+          if (activeToolRef.current === 'text' && !event.target) {
+            placeTextbox(canvas, event.e);
+          }
         });
 
         const screenWidth = pdfCanvasEl.width;

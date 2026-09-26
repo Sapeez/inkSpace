@@ -81,21 +81,43 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   `ViewerPage.jsx` (owns the state) and passed to both `Toolbar.jsx` (controlled) and
   `AnnotationCanvas.jsx`. `AnnotationCanvas.jsx`'s `TOOL_BRUSH_STYLES` map (keys = free-drawing tool ids,
   values = `{ opacity }`) is both the free-drawing membership test (`FREE_DRAWING_TOOLS` is derived from
-  its keys) and the per-tool style lookup — extending it is how 2.6+ free-drawing tools, if any, get
-  added. Pen and Freeform Highlighter share the same base color/width (`BASE_STROKE_COLOR`/
-  `BASE_STROKE_WIDTH`, the brush's own `color`/`width`) but differ in `opacity` (1 vs. 0.35), applied to
-  the finished stroke via Fabric's `path:created` event — not baked into the brush's color string — so
-  it stays a real `opacity` property in the serialized state (relevant for burn-in translation, task
-  3.x). This does not contradict A3 ("opacity fixed at 100%, not configurable"): A3 is about there being
-  no user-facing opacity *control* for line-based marks — Freeform Highlighter's semi-transparency is a
+  its keys) and the per-tool style lookup — extending it is how any future free-drawing tool gets added
+  (through 2.13, no other tool in the task list is `PencilBrush`-based; 2.7's Text Highlighter is a
+  drag-rectangle, not freehand, so it needs a parallel mechanism, not this one). Pen and Freeform
+  Highlighter share the same base color/width (`BASE_STROKE_COLOR`/`BASE_STROKE_WIDTH`) but differ in
+  `opacity` (1 vs. 0.35). Opacity is baked into the *live* brush color (`withAlpha`) so the in-progress
+  drag previews at the right transparency — Fabric paints that to a separate top context at the brush's
+  raw color, and only creates the real `Path` object on mouse-up — and then reset on the finished path
+  via Fabric's `path:created` event back to a solid stroke plus a real, distinct `opacity` property (not
+  left baked into the color string), so both the live preview and the serialized state (relevant for
+  burn-in translation, task 3.x) are correct. `path:created` reads which tool a stroke belongs to from
+  `canvas.__strokeTool`, captured on `mouse:down` (stroke *start*) — not from whatever's active when the
+  mouse happens to come up, since a stroke can take real time to draw and the active tool could change
+  mid-drag (e.g. Tab-focus + Enter/Space on a toolbar button while the mouse is held down elsewhere).
+  This does not contradict A3 ("opacity fixed at 100%, not configurable"): A3 is about there being no
+  user-facing opacity *control* for line-based marks — Freeform Highlighter's semi-transparency is a
   fixed, hardcoded property of that specific tool, never adjustable, so both rules hold simultaneously.
   When `activeTool` is any free-drawing tool, every tracked page canvas gets `isDrawingMode = true` with
   a `PencilBrush` at the shared base color/width, and Fabric's `upperCanvasEl` gets `pointer-events: auto`
   (`lowerCanvasEl` is always `pointer-events: none` — Fabric never attaches listeners to it — and
-  `upperCanvasEl` is `none` too whenever no free-drawing tool is active, so the overlay doesn't intercept
+  `upperCanvasEl` is `none` too whenever no interactive tool is active, so the overlay doesn't intercept
   clicks meant for pan/zoom-controls). A `pointerdown` listener on `upperCanvasEl` stops propagation
-  while `isDrawingMode` is true, so a drag draws instead of also triggering `PDFViewer.tsx`'s pan gesture
-  on the ancestor `.pdf-viewer`.
+  whenever the active tool needs pointer input, so a drag/click reaches Fabric instead of also
+  triggering `PDFViewer.tsx`'s pan gesture on the ancestor `.pdf-viewer` (which calls
+  `setPointerCapture` — once captured, even Fabric's own *mouse* events, which is what it actually
+  listens for, get redirected to the capturing element per the Pointer Events spec's compatibility-event
+  rules, breaking drawing and click-to-place alike if not stopped first).
+- **Text (A1, implemented)**: click-to-place, not free-drawing — `AnnotationCanvas.jsx`'s
+  `CLICK_TO_PLACE_TOOLS` set (currently just `text`; extend as 2.7+ click/drag-to-place tools land)
+  joins `FREE_DRAWING_TOOLS` to form `INTERACTIVE_TOOLS`, the actual pointer-events/stopPropagation
+  gate. A `mouse:down` listener creates a Fabric `Textbox` at `canvas.getScenePoint(event)` — already in
+  this canvas's own PDF-point space, accounting for the current zoom, so no manual scale math is needed
+  (same Risk R1 guarantee as everything else here) — only when the click didn't land on an existing
+  object (`!event.target`, so clicking an existing text box selects/edits it instead of stacking a new
+  one on top). The new box gets the base color as its fill, drops the user straight into editing
+  (`enterEditing()` + `selectAll()`), and removes itself on `editing:exited` if the user never typed
+  anything, so clicking away without typing doesn't leave an empty, invisible, forever-selectable
+  annotation behind.
   **Implementation note (not itself a requirement, but load-bearing):** Fabric wraps whatever `<canvas>`
   element it's given in its own `.canvas-container` div (`position: relative` by default, holding a
   "lower" and "upper" canvas — only the upper one gets an explicit inline `position: absolute` from
