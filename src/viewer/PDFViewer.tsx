@@ -30,7 +30,6 @@ export default function PDFViewer({ pdfDoc, loading: documentLoading, error: doc
   const pagesContainerRef = useRef<HTMLDivElement>(null);
   const prevPdfDocRef = useRef<PDFDocumentProxy | null>(null);
   const currentPdfDocRef = useRef<PDFDocumentProxy | null>(null);
-  currentPdfDocRef.current = pdfDoc;
   const lastVisiblePageRef = useRef<number | null>(null);
   const lastScrollLeftFractionRef = useRef(0);
   const panStateRef = useRef<PanState | null>(null);
@@ -38,6 +37,10 @@ export default function PDFViewer({ pdfDoc, loading: documentLoading, error: doc
   const [renderError, setRenderError] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
+
+  useEffect(() => {
+    currentPdfDocRef.current = pdfDoc;
+  }, [pdfDoc]);
 
   function cancelPan() {
     const panState = panStateRef.current;
@@ -138,14 +141,20 @@ export default function PDFViewer({ pdfDoc, loading: documentLoading, error: doc
   async function fitWidth() {
     if (!pdfDoc || rendering) return;
     const targetDoc = pdfDoc;
+    const targetScale = scale;
     const page = await targetDoc.getPage(1);
-    if (currentPdfDocRef.current !== targetDoc) return;
+    if (currentPdfDocRef.current !== targetDoc || scale !== targetScale) return;
 
     const availableWidth = viewerRef.current?.clientWidth ?? 0;
     const nativeWidth = page.getViewport({ scale: 1 }).width;
-    if (availableWidth <= 0 || nativeWidth <= 0) return;
+    if (availableWidth <= 0 || nativeWidth <= 0) {
+      console.warn('PDFViewer: cannot compute fit-width scale, viewer or page width unavailable');
+      return;
+    }
 
-    const fitScale = Math.round((availableWidth / nativeWidth) * 100) / 100;
+    // Floor, not round: fit-width must never overflow the viewer's width.
+    const fitScale = Math.floor((availableWidth / nativeWidth) * 100) / 100;
+    lastScrollLeftFractionRef.current = 0;
     setScale(Math.min(MAX_SCALE, Math.max(MIN_SCALE, fitScale)));
   }
 
@@ -209,9 +218,8 @@ export default function PDFViewer({ pdfDoc, loading: documentLoading, error: doc
       <div className="zoom-controls" data-testid="zoom-controls" onPointerDown={(event) => event.stopPropagation()}>
         <button
           type="button"
-          className="zoom-controls-button zoom-controls-button--label"
+          className="zoom-controls-button zoom-controls-button--divider"
           data-testid="fit-width-button"
-          aria-label="Fit width"
           disabled={!pdfDoc || rendering}
           onClick={fitWidth}
         >

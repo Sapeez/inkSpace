@@ -177,7 +177,7 @@ html, body {
   cursor: default;
 }
 
-.zoom-controls-button--label {
+.zoom-controls-button--divider {
   font-size: 0.8125rem;
   padding: 0.125rem 0.5rem;
   border-right: 1px solid rgb(255 255 255 / 20%);

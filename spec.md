@@ -48,8 +48,13 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   scroll/wheel is enough (V6); "Fit width" computes scale from the first page's native width
   vs. the viewer's current clientWidth and goes through the same zoom pipeline (clamped to
   50%–300%, same scroll-restore behavior) rather than being a separate layout mode (V7).
-- No print, search, or any pdf.js default control beyond V1–V7 — actively hidden/disabled, not just
-  unused, since rendering libraries expose these by default (V8).
+- No print, search, or any pdf.js default control beyond V1–V7 (V8). Confirmed structurally, not by
+  hiding/disabling anything after the fact: the viewer only imports pdf.js's core rendering API
+  (`getDocument`, `page.render` onto a raw `<canvas>`) — it never imports `pdfjs-dist/web/pdf_viewer`
+  (the example "default viewer" app that ships its own toolbar with print/find/download), its CSS, or
+  a `TextLayerBuilder`/`PDFFindController`/`PDFPrintServiceFactory`. No text layer is built either, so
+  page content isn't selectable text the browser's native Find could search. There is nothing to turn
+  off because none of it was ever wired in.
 
 ### 3.2 Annotation tools (A1–A9)
 - Toolbar, fixed left-to-right order: Pen (default) / Freeform highlighter → Text (default) / Text
@@ -187,7 +192,7 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 
 | Phase | Status |
 |---|---|
-| 1 — Viewer (V1–V8) | Partial: render/scroll/loading/thumbnails, page navigator, zoom in/out, pan, and fit-width done (1.1–1.8). Explicit print/search suppression not yet confirmed (1.9). |
+| 1 — Viewer (V1–V8) | Done: render/scroll/loading/thumbnails, page navigator, zoom in/out, pan, fit-width, and confirmed absence of default pdf.js print/search UI (1.1–1.9). Task 1.10 (dedicated unit/integration tests for this phase) still open. |
 | 2 — Annotation tools (A1–A9) | Not started. `AnnotationCanvas.jsx` and `Toolbar.jsx` are structural stubs only; Fabric.js/Konva.js not installed. |
 | 3 — Download & Save (D1–D3, S1–S8, F1–F6) | Not started. `pdf-lib` not installed; `applyBurnIn`/`saveAttachment` are placeholder stubs (`server/services/burn-in.js`, `server/services/storage.ts`) tied to an old timestamp/watermark concept, not the annotation model above. |
 | 4 — Permissions & sharing (P1–P5) | Partial: `shares` table and `canRead`/`canWrite`/`canBurnIn` logic exist and are unit-tested (`tests/permissions.test.ts`). Identity is still the `x-user-id` header stub (see §4 gap). `ShareModal`, `NoAccessState`, and the grant endpoint are not built. |

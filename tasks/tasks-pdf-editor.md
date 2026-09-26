@@ -62,7 +62,7 @@ After implementing each sub-task, before checking it off, run this full loop —
   - [x] 1.6 Add zoom in / zoom out controls that re-render pages at the new scale (requirement V5).
   - [x] 1.7 Add pan support so the user can drag the view when zoomed in (requirement V6).
   - [x] 1.8 Add a "Fit width" button that sets the zoom level so the page fills the viewer's width (requirement V7).
-  - [ ] 1.9 Confirm that print, search, and any other pdf.js default controls are hidden or disabled — these are explicitly out of scope (requirement V8).
+  - [x] 1.9 Confirm that print, search, and any other pdf.js default controls are hidden or disabled — these are explicitly out of scope (requirement V8).
   - [ ] 1.10 Write `tests/PDFViewer.test.js`: test that the loading state appears, that navigation buttons work, and that the page-number input jumps to the correct page.
 
 - [ ] 2.0 Annotation Tools — full toolbar, global styling, select/move/resize/delete
