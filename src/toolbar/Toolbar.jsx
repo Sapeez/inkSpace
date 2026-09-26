@@ -11,6 +11,7 @@ import {
   PolygonIcon,
   SignatureIcon,
 } from './toolbarIcons.tsx';
+import StyleControls from './StyleControls.tsx';
 
 // Fixed left-to-right order per requirement A1 — do not reorder. Ellipse is
 // the default *shape* tool (Rectangle/Line/Arrow are its siblings, not
@@ -30,7 +31,7 @@ const TOOLS = [
   { id: 'signature', label: 'Signature', testId: 'tool-signature', Icon: SignatureIcon },
 ];
 
-export default function Toolbar({ attachmentId, activeTool, onToolChange }) {
+export default function Toolbar({ attachmentId, activeTool, onToolChange, style, onStyleChange }) {
   return (
     <header className="toolbar" role="toolbar" aria-label="Annotation tools" data-testid="annotation-toolbar">
       <span className="toolbar-attachment">Attachment: {attachmentId}</span>
@@ -49,6 +50,7 @@ export default function Toolbar({ attachmentId, activeTool, onToolChange }) {
           </button>
         ))}
       </div>
+      <StyleControls style={style} onStyleChange={onStyleChange} />
     </header>
   );
 }

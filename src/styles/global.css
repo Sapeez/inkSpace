@@ -66,6 +66,31 @@ html, body {
   color: #2563eb;
 }
 
+.style-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.style-controls-field {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.875rem;
+  color: #374151;
+  cursor: pointer;
+}
+
+.style-controls-label {
+  white-space: nowrap;
+}
+
+.style-controls-width-input {
+  width: 3.5rem;
+}
+
 .viewer-main {
   display: flex;
   flex: 1;

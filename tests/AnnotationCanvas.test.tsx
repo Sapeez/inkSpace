@@ -8,6 +8,7 @@ const { cleanup, render } = await import('@testing-library/react');
 const { createRef } = await import('react');
 const { Rect, Point } = await import('fabric');
 const AnnotationCanvas = (await import('../src/annotation-canvas/AnnotationCanvas')).default as any;
+const { DEFAULT_ANNOTATION_STYLE } = await import('../src/toolbar/StyleControls');
 
 afterEach(async () => {
   cleanup();
@@ -59,7 +60,7 @@ function makePageWrapper(pdfCanvasWidth: number, pdfCanvasHeight: number) {
 test('creates a Fabric canvas backing store sized to the on-screen scale', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(900, 1200); // on-screen = 1.5x of native 600x800
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -73,7 +74,7 @@ test('creates a Fabric canvas backing store sized to the on-screen scale', async
 test('annotation object coordinates survive a rescale (dispose, serialize, reload) unchanged', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} />);
 
   const { wrapper: wrapperA, pdfCanvas: pdfCanvasA } = makePageWrapper(600, 800); // 1x
   await ref.current.handlePageRendered(1, wrapperA, pdfCanvasA);
@@ -109,7 +110,7 @@ test('a stale handlePageRendered call does not dispose the correct canvas built 
   });
 
   const ref = createRef<any>();
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} />);
 
   // Call #1 starts and suspends on the held-open getPage promise — mirrors a
   // page render that was still in flight when a zoom/rescale landed.
@@ -142,7 +143,7 @@ test('a stale handlePageRendered call does not dispose the correct canvas built 
 test('the pen tool puts the canvas into free-drawing mode with the default red 4pt solid brush', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  const { rerender } = render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="pen" />);
+  const { rerender } = render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="pen" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -158,7 +159,7 @@ test('the pen tool puts the canvas into free-drawing mode with the default red 4
 
   // 'polygon' isn't implemented yet and isn't click-to-place either, so
   // it's a genuinely non-interactive tool for this assertion.
-  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" />);
+  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="polygon" />);
 
   assert.equal(canvas.isDrawingMode, false, 'switching away from pen must turn drawing mode off');
   assert.equal(canvas.upperCanvasEl.style.pointerEvents, 'none', 'and stop intercepting pointer input');
@@ -167,7 +168,7 @@ test('the pen tool puts the canvas into free-drawing mode with the default red 4
 test('a pen stroke renders fully opaque; a freeform-highlighter stroke of the same color/width renders semi-transparent', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  const { rerender } = render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="pen" />);
+  const { rerender } = render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="pen" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -178,7 +179,7 @@ test('a pen stroke renders fully opaque; a freeform-highlighter stroke of the sa
   const penStroke = canvas.getObjects()[0];
   assert.equal(penStroke.opacity, 1, 'A3: pen strokes render fully opaque');
 
-  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="freeform-highlighter" />);
+  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="freeform-highlighter" />);
   assert.equal(canvas.isDrawingMode, true, 'freeform highlighter is also a free-drawing tool');
   assert.equal(
     canvas.freeDrawingBrush.color,
@@ -197,7 +198,7 @@ test('a pen stroke renders fully opaque; a freeform-highlighter stroke of the sa
 test('a stroke keeps the opacity of the tool active when it started, even if the tool changes before mouse-up', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  const { rerender } = render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="pen" />);
+  const { rerender } = render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="pen" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -212,7 +213,7 @@ test('a stroke keeps the opacity of the tool active when it started, even if the
   brush.onMouseDown(new Point(10, 10), { e: { clientX: 10, clientY: 10 } });
   brush.onMouseMove(new Point(50, 50), { e: { clientX: 50, clientY: 50 } });
 
-  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="freeform-highlighter" />);
+  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="freeform-highlighter" />);
 
   brush.onMouseUp({ e: { clientX: 50, clientY: 50 } });
 
@@ -240,7 +241,7 @@ function stubBoundingClientRect(canvas: any, width: number, height: number) {
 test('the text tool places an empty, editable Textbox at the clicked point in canvas coordinates', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="text" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="text" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800); // 1x scale
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -261,7 +262,7 @@ test('the text tool places an empty, editable Textbox at the clicked point in ca
 test('clicking an existing object with the text tool active does not place a new text box on top of it', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="text" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="text" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -279,7 +280,7 @@ test('clicking an existing object with the text tool active does not place a new
 test('an empty text box is removed once the user exits editing without typing anything', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="text" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="text" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -297,7 +298,7 @@ test('an empty text box is removed once the user exits editing without typing an
 test('a text box with typed content survives exiting editing', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="text" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="text" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -316,7 +317,7 @@ test('a text box with typed content survives exiting editing', async () => {
 test('the text highlighter drags out a filled, semi-transparent rectangle with no stroke', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="text-highlighter" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="text-highlighter" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -344,7 +345,7 @@ test('the text highlighter drags out a filled, semi-transparent rectangle with n
 test('a text-highlighter drag too small to be a real highlight is discarded, not kept as a stray shape', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="text-highlighter" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="text-highlighter" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -360,7 +361,7 @@ test('a text-highlighter drag too small to be a real highlight is discarded, not
 test('a text-highlighter drag exactly at the minimum threshold is kept, not discarded', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="text-highlighter" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="text-highlighter" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800); // 1x zoom
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -378,7 +379,7 @@ test('a text-highlighter drag exactly at the minimum threshold is kept, not disc
 test('at low zoom, a single screen-pixel of jitter is still treated as an accidental click, not kept as a shape', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="text-highlighter" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="text-highlighter" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(300, 400); // 0.5x of native 600x800
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -403,7 +404,7 @@ test('at low zoom, a single screen-pixel of jitter is still treated as an accide
 test('clicking an existing object with the text highlighter active does not start a new drag on top of it', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="text-highlighter" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="text-highlighter" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -423,7 +424,7 @@ test('clicking an existing object with the text highlighter active does not star
 test('an empty text box still mid-edit does not survive a page reset (e.g. the user zoomed instead of clicking away)', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="text" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="text" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -452,7 +453,7 @@ test('an empty text box still mid-edit does not survive a page reset (e.g. the u
 test('a tool switch away from text while a box is empty and mid-edit exits editing instead of leaving a stray cursor', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  const { rerender } = render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="text" />);
+  const { rerender } = render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="text" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -462,7 +463,7 @@ test('a tool switch away from text while a box is empty and mid-edit exits editi
   canvas.fire('mouse:down', { e: { clientX: 50, clientY: 50 }, target: null });
   assert.equal(canvas.getObjects().length, 1);
 
-  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="pen" />);
+  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="pen" />);
 
   assert.equal(canvas.getObjects().length, 0, 'switching tools while empty must clean it up, not strand it mid-edit');
 });
@@ -470,7 +471,7 @@ test('a tool switch away from text while a box is empty and mid-edit exits editi
 test('the rectangle tool drags out an unfilled outline rectangle (A4: fill default transparent)', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="rectangle" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="rectangle" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -498,7 +499,7 @@ test('the rectangle tool drags out an unfilled outline rectangle (A4: fill defau
 test('the ellipse tool drags out an unfilled outline ellipse sized to the drag box', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="ellipse" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="ellipse" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -522,7 +523,7 @@ test('the ellipse tool drags out an unfilled outline ellipse sized to the drag b
 test('a rectangle/ellipse drag too small to be real is discarded, not kept as a stray shape', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="rectangle" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="rectangle" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -538,7 +539,7 @@ test('a rectangle/ellipse drag too small to be real is discarded, not kept as a 
 test('the cloud tool drags out an unfilled, wavy-bordered shape sized to the drag box', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="cloud" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="cloud" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -567,7 +568,7 @@ test('the cloud tool drags out an unfilled, wavy-bordered shape sized to the dra
 test('resizing a cloud mid-drag replaces the shape instance rather than mutating it, without leaking the old one', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="cloud" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="cloud" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -589,7 +590,7 @@ test('resizing a cloud mid-drag replaces the shape instance rather than mutating
 test('a thin cloud (bracketing a single line of text) renders at its actual dragged height, not inflated to the bump size', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="cloud" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="cloud" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -616,7 +617,7 @@ test('a thin cloud (bracketing a single line of text) renders at its actual drag
 test('a too-small cloud drag is discarded, not kept as a stray shape', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="cloud" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="cloud" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -632,7 +633,7 @@ test('a too-small cloud drag is discarded, not kept as a stray shape', async () 
 test('the line tool drags out a straight line between the two drag points', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="line" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="line" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -656,7 +657,7 @@ test('the line tool drags out a straight line between the two drag points', asyn
 test('the arrow tool drags out a one-sided arrow (a solid arrowhead only at the drag end point)', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="arrow" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="arrow" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -684,7 +685,7 @@ test('the arrow tool drags out a one-sided arrow (a solid arrowhead only at the 
 test('a short arrow (shorter than the head length) never lets the shaft overshoot past the start point', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="arrow" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="arrow" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -715,7 +716,7 @@ test('a short arrow (shorter than the head length) never lets the shaft overshoo
 test('a line/arrow drag too short to be real is discarded, not kept as a stray shape', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="arrow" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="arrow" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -731,7 +732,7 @@ test('a line/arrow drag too short to be real is discarded, not kept as a stray s
 test('clicking an existing object with a shape tool active does not start a new drag on top of it', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="rectangle" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="rectangle" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -746,4 +747,179 @@ test('clicking an existing object with a shape tool active does not start a new 
   canvas.fire('mouse:up', {});
 
   assert.equal(canvas.getObjects().length, 1, 'no new shape should have started on top of it');
+});
+
+const CUSTOM_STYLE = { color: '#2563eb', filled: true, strokeWidth: 10 };
+
+test('a custom global style is used for newly-created annotations, not the hardcoded defaults (2.10)', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="pen" style={CUSTOM_STYLE} />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+
+  simulateStroke(canvas);
+  const stroke = canvas.getObjects()[0];
+  assert.equal(stroke.stroke, '#2563eb', "the pen stroke's color follows the global style, not the old hardcoded red");
+  assert.equal(stroke.strokeWidth, 10);
+});
+
+test('a filled rectangle drag with a custom style fills with the global color, not left transparent (A4)', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="rectangle" style={CUSTOM_STYLE} />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 50, clientY: 50 }, target: null });
+  canvas.fire('mouse:move', { e: { clientX: 250, clientY: 150 } });
+  canvas.fire('mouse:up', {});
+
+  const rect = canvas.getObjects()[0];
+  assert.equal(rect.fill, '#2563eb', 'style.filled=true fills with the one global color, not a separate fill color');
+  assert.equal(rect.stroke, '#2563eb');
+  assert.equal(rect.strokeWidth, 10);
+});
+
+test('changing the global style affects future annotations only, leaving an unselected existing one untouched (A4)', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  const { rerender } = render(
+    <AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="rectangle" style={DEFAULT_ANNOTATION_STYLE} />,
+  );
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 50, clientY: 50 }, target: null });
+  canvas.fire('mouse:move', { e: { clientX: 250, clientY: 150 } });
+  canvas.fire('mouse:up', {});
+  const rect = canvas.getObjects()[0];
+  canvas.discardActiveObject();
+
+  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="rectangle" style={CUSTOM_STYLE} />);
+
+  assert.equal(rect.stroke, DEFAULT_ANNOTATION_STYLE.color, 'an existing, unselected annotation must not repaint when the global style changes');
+  assert.equal(rect.strokeWidth, DEFAULT_ANNOTATION_STYLE.strokeWidth);
+});
+
+test('changing the global style while an annotation is selected restyles it live (A4: unless re-selected)', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  const { rerender } = render(
+    <AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="rectangle" style={DEFAULT_ANNOTATION_STYLE} />,
+  );
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 50, clientY: 50 }, target: null });
+  canvas.fire('mouse:move', { e: { clientX: 250, clientY: 150 } });
+  canvas.fire('mouse:up', {});
+  const rect = canvas.getObjects()[0];
+  canvas.setActiveObject(rect);
+
+  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="rectangle" style={CUSTOM_STYLE} />);
+
+  assert.equal(rect.stroke, '#2563eb', 're-selecting an existing annotation and changing style must restyle it live');
+  assert.equal(rect.strokeWidth, 10);
+  assert.equal(rect.fill, '#2563eb', 'style.filled also applies to the re-selected object');
+});
+
+test('restyling a selected text annotation uses `fill`, not `stroke`', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  const { rerender } = render(
+    <AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="text" style={DEFAULT_ANNOTATION_STYLE} />,
+  );
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 50, clientY: 50 }, target: null });
+  const textbox = canvas.getObjects()[0];
+  textbox.exitEditing();
+  canvas.setActiveObject(textbox);
+
+  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="text" style={CUSTOM_STYLE} />);
+
+  assert.equal(textbox.fill, '#2563eb', "a text box's color lives in `fill`, not `stroke`");
+});
+
+test('restyling a selected freeform-highlighter stroke uses `stroke`/`strokeWidth`, not `fill` (regression)', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  const { rerender } = render(
+    <AnnotationCanvas
+      ref={ref}
+      attachmentId="a1"
+      pdfDoc={pdfDoc}
+      activeTool="freeform-highlighter"
+      style={DEFAULT_ANNOTATION_STYLE}
+    />,
+  );
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+
+  simulateStroke(canvas);
+  const stroke = canvas.getObjects()[0];
+  canvas.setActiveObject(stroke);
+
+  rerender(
+    <AnnotationCanvas
+      ref={ref}
+      attachmentId="a1"
+      pdfDoc={pdfDoc}
+      activeTool="freeform-highlighter"
+      style={CUSTOM_STYLE}
+    />,
+  );
+
+  assert.equal(stroke.stroke, '#2563eb', "a highlighter stroke's color lives in `stroke`, not `fill` — that's what actually renders");
+  assert.equal(stroke.strokeWidth, 10, 'strokeWidth must also update, not just color');
+  assert.equal(stroke.fill, null, 'a free-drawing stroke has no fill; restyling must not introduce one');
+});
+
+test('changing the global style while a text box is empty and still mid-edit does not exit editing or delete it (regression)', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  const { rerender } = render(
+    <AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="text" style={DEFAULT_ANNOTATION_STYLE} />,
+  );
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 50, clientY: 50 }, target: null });
+  const textbox = canvas.getObjects()[0];
+  assert.equal(textbox.isEditing, true);
+
+  // The user picks a color before typing anything — a style change alone
+  // must not force-exit (and, via the empty-box cleanup, delete) the box
+  // they just placed.
+  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="text" style={CUSTOM_STYLE} />);
+
+  assert.equal(canvas.getObjects().length, 1, 'the still-empty, mid-edit text box must survive a style-only change');
+  assert.equal(textbox.isEditing, true, 'and must still be in editing mode, not kicked out of it');
+
+  // Cleanup: a Textbox left mid-edit keeps Fabric's cursor-blink interval
+  // running past the end of the test, which otherwise keeps the process
+  // alive indefinitely (node --test never exits, no other test in this file
+  // leaves an object mid-edit at its end for the same reason).
+  textbox.exitEditing();
 });

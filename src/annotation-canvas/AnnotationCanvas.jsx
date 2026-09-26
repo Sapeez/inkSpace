@@ -1,49 +1,49 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { Canvas, Ellipse, Line, Path, PencilBrush, Rect, Textbox } from 'fabric';
 
-// Global style (A4) — color default red, stroke width default 4pt; every
-// free-drawing tool shares this base color/width. StyleControls (task 2.10)
-// will make color/width user-configurable; until then these are constants.
-// Fabric's stroke `width` is in this canvas's own logical units, which are
-// PDF points (see the coordinate-space note below), so "4pt" is simply `4`.
-//
-// Per-tool `opacity` is NOT the same thing as A3's "opacity fixed at 100%,
-// not configurable" — A3 means there is no user-facing opacity *control* for
-// line-based marks (A2, e.g. Pen). A highlighter's semi-transparency is a
-// fixed, hardcoded property of that specific tool, not a setting either tool
-// exposes — so both rules hold at once. Applied to the finished object
-// (`path:created`/`finishHighlightDrag`, below), not baked into the brush's
-// or fill's color string, so it stays a real `opacity` property in the
-// serialized/burned-in state.
-const BASE_STROKE_COLOR = '#dc2626';
-const BASE_STROKE_WIDTH = 4;
+// A4: color/fill/stroke-width are one *global* style, owned by ViewerPage.jsx
+// (StyleControls.tsx) and passed in as the `style` prop — not per-tool, not
+// hardcoded here. `HIGHLIGHTER_OPACITY` is the one exception: a highlighter's
+// semi-transparency is a fixed, hardcoded property of that specific tool,
+// not a setting either tool exposes, so it stays a constant here rather than
+// part of `style` (this does not contradict A3 — see the note below).
 const HIGHLIGHTER_OPACITY = 0.35;
-const TOOL_BRUSH_STYLES = {
-  pen: { opacity: 1 },
-  'freeform-highlighter': { opacity: HIGHLIGHTER_OPACITY },
+const FREE_DRAWING_OPACITY = {
+  pen: 1,
+  'freeform-highlighter': HIGHLIGHTER_OPACITY,
 };
-const FREE_DRAWING_TOOLS = new Set(Object.keys(TOOL_BRUSH_STYLES));
+const FREE_DRAWING_TOOLS = new Set(Object.keys(FREE_DRAWING_OPACITY));
 
 // Below this size, in *screen* pixels — not this canvas's PDF-point units,
 // which are zoom-dependent (`canvas.getScenePoint` divides by zoom, so a
 // fixed logical-space threshold would let more incidental screen-pixel
 // jitter through at low zoom and less at high zoom) — a drag-to-place
 // gesture is treated as an accidental click, not a real shape, and
-// discarded. Checked against `rect.width/height * canvas.getZoom()`, i.e.
-// converted back to screen space, in finishHighlightDrag.
+// discarded. Checked against `width/height * canvas.getZoom()`, i.e.
+// converted back to screen space.
 const MIN_DRAG_SIZE_SCREEN_PX = 4;
 
-// Assumes a 6-digit `#rrggbb` string — fine while the only caller is the
-// hardcoded BASE_STROKE_COLOR constant below, but task 2.10's global color
-// picker will feed a user-chosen value through this same path; a shorthand
-// hex (`#f00`) or any other format would silently produce `rgba(NaN, NaN,
-// NaN, x)` (an invisible stroke, no error) rather than failing loudly —
-// validate/normalize the picker's output before it reaches here.
+// Assumes a 6-digit `#rrggbb` string. `style.color` comes from an
+// `<input type="color">` (StyleControls.tsx), which always emits that exact
+// format, so this holds for every real caller today.
 function withAlpha(hexColor, alpha) {
   const r = parseInt(hexColor.slice(1, 3), 16);
   const g = parseInt(hexColor.slice(3, 5), 16);
   const b = parseInt(hexColor.slice(5, 7), 16);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// Tags every annotation object with which tool created it — this is what
+// lets `applyStyleToObject` (re-selecting and restyling an existing
+// annotation, A4's "unless re-selected" carve-out) know how to interpret
+// `style.color`/`style.filled`/`style.strokeWidth` for that specific object
+// without re-deriving it from the object's current paint. Included in
+// `canvas.toJSON()`'s `propertiesToInclude` (see `handlePagesReset`/
+// `handlePageRendered`) so it survives PDFViewer's destructive per-scale
+// canvas rebuilds, not just the object's lifetime within one canvas.
+function tag(object, toolId) {
+  object.set('annotationTool', toolId);
+  return object;
 }
 
 // Text (A1) isn't free-drawing — it's click-to-place — but still needs the
@@ -53,33 +53,37 @@ const CLICK_TO_PLACE_TOOLS = new Set(['text']);
 // Drag-to-place tools whose gesture is "drag out a bounding box" (as opposed
 // to Line/Arrow's "drag between two points", below). Each entry says how to
 // create the shape at zero size and how to resize it to a given box — same
-// per-tool style-config shape as TOOL_BRUSH_STYLES, generalized to cover
+// per-tool style-config shape as FREE_DRAWING_OPACITY, generalized to cover
 // Rectangle/Ellipse/Cloud/Text Highlighter without four near-duplicate drag
 // implementations. `resize` returns the shape to use going forward: most
 // tools mutate `shape` in place and return the same instance, but Cloud's
 // wavy outline is regenerated path data on every resize (same reasoning as
 // Line/Arrow rebuilding on every move, below) and returns a *new* Path
 // instead — the caller (updateBoundsDrag) swaps it into the canvas
-// transparently either way. `fill: null` (Rectangle/Ellipse/Cloud) means
-// A4's "fill default transparent" — an outline only, letting the page show
-// through.
+// transparently either way. `style.filled` (Rectangle/Ellipse/Cloud) gates
+// A4's "fill default transparent" — an outline only unless the user turned
+// fill on, in which case it's filled with `style.color` too (one global
+// color, not a second independent fill color).
 const BOUNDS_SHAPE_TOOLS = {
   'text-highlighter': {
-    create: (left, top) => new Rect({ left, top, width: 0, height: 0, fill: BASE_STROKE_COLOR, opacity: HIGHLIGHTER_OPACITY, stroke: null }),
+    create: (left, top, style) =>
+      tag(new Rect({ left, top, width: 0, height: 0, fill: style.color, opacity: HIGHLIGHTER_OPACITY, stroke: null }), 'text-highlighter'),
     resize: (shape, left, top, width, height) => {
       shape.set({ left, top, width, height });
       return shape;
     },
   },
   rectangle: {
-    create: (left, top) => new Rect({ left, top, width: 0, height: 0, fill: null, stroke: BASE_STROKE_COLOR, strokeWidth: BASE_STROKE_WIDTH }),
+    create: (left, top, style) =>
+      tag(new Rect({ left, top, width: 0, height: 0, fill: style.filled ? style.color : null, stroke: style.color, strokeWidth: style.strokeWidth }), 'rectangle'),
     resize: (shape, left, top, width, height) => {
       shape.set({ left, top, width, height });
       return shape;
     },
   },
   ellipse: {
-    create: (left, top) => new Ellipse({ left, top, rx: 0, ry: 0, fill: null, stroke: BASE_STROKE_COLOR, strokeWidth: BASE_STROKE_WIDTH }),
+    create: (left, top, style) =>
+      tag(new Ellipse({ left, top, rx: 0, ry: 0, fill: style.filled ? style.color : null, stroke: style.color, strokeWidth: style.strokeWidth }), 'ellipse'),
     // Ellipse's own width/height are derived from rx/ry (confirmed empirically
     // — setting rx/ry keeps .width/.height in sync), not settable directly.
     resize: (shape, left, top, width, height) => {
@@ -88,8 +92,8 @@ const BOUNDS_SHAPE_TOOLS = {
     },
   },
   cloud: {
-    create: (left, top) => buildCloudShape(left, top, 0, 0),
-    resize: (_shape, left, top, width, height) => buildCloudShape(left, top, width, height),
+    create: (left, top, style) => tag(buildCloudShape(left, top, 0, 0, style), 'cloud'),
+    resize: (_shape, left, top, width, height, style) => tag(buildCloudShape(left, top, width, height, style), 'cloud'),
   },
 };
 
@@ -104,26 +108,31 @@ const POINT_TO_POINT_TOOLS = new Set(['line', 'arrow']);
 const DRAG_TO_PLACE_TOOLS = new Set([...BOUNDS_SHAPE_TOOL_IDS, ...POINT_TO_POINT_TOOLS]);
 const INTERACTIVE_TOOLS = new Set([...FREE_DRAWING_TOOLS, ...CLICK_TO_PLACE_TOOLS, ...DRAG_TO_PLACE_TOOLS]);
 
-// Arrow's head, in this canvas's PDF-point units — proportional to the base
-// stroke width so it stays visually in proportion if that constant changes.
-const ARROWHEAD_LENGTH = BASE_STROKE_WIDTH * 3;
-const ARROWHEAD_WIDTH = BASE_STROKE_WIDTH * 2.5;
+// Arrow's head, in this canvas's PDF-point units — proportional to the
+// current stroke width so it stays visually in proportion as that changes.
+function arrowheadSize(style) {
+  return { length: style.strokeWidth * 3, width: style.strokeWidth * 2.5 };
+}
 
 // A one-sided arrow (A2: arrowhead on one end only, at `end`): a single Path
 // with two subpaths — the shaft (stopping short of the head so it doesn't
 // poke out past the head's base) and a filled triangle. One object, not a
 // Group, so it serializes/burns-in the same straightforward way every other
-// shape here does.
+// shape here does. The arrowhead is always filled with `style.color`,
+// regardless of `style.filled` — that toggle is about closed shapes having
+// an optional interior fill (A4), not about whether an arrow *looks* like
+// an arrow, which requires a filled head unconditionally.
 //
 // The head is clamped to at most half the arrow's actual length. Without
-// this, a drag shorter than ARROWHEAD_LENGTH would walk `back` past `start`
-// (on the far side of it, not between `start` and `end`) — an oversized
-// head that swallows the whole line plus a shaft segment sticking out
-// backward past where the user started dragging.
-function buildArrowPath(start, end) {
+// this, a drag shorter than the head's full length would walk `back` past
+// `start` (on the far side of it, not between `start` and `end`) — an
+// oversized head that swallows the whole line plus a shaft segment sticking
+// out backward past where the user started dragging.
+function buildArrowPath(start, end, style) {
+  const { length: fullHeadLength, width: fullHeadWidth } = arrowheadSize(style);
   const totalLength = Math.hypot(end.x - start.x, end.y - start.y);
-  const headLength = Math.min(ARROWHEAD_LENGTH, totalLength / 2);
-  const headWidth = ARROWHEAD_WIDTH * (headLength / ARROWHEAD_LENGTH);
+  const headLength = Math.min(fullHeadLength, totalLength / 2);
+  const headWidth = fullHeadWidth * (headLength / fullHeadLength);
 
   const angle = Math.atan2(end.y - start.y, end.x - start.x);
   const backX = end.x - headLength * Math.cos(angle);
@@ -136,12 +145,12 @@ function buildArrowPath(start, end) {
     `M ${end.x} ${end.y} L ${backX + perpX} ${backY + perpY} L ${backX - perpX} ${backY - perpY} Z`,
   ].join(' ');
 
-  return new Path(pathData, { fill: BASE_STROKE_COLOR, stroke: BASE_STROKE_COLOR, strokeWidth: BASE_STROKE_WIDTH });
+  return tag(new Path(pathData, { fill: style.color, stroke: style.color, strokeWidth: style.strokeWidth }), 'arrow');
 }
 
-function buildLineOrArrow(tool, start, end) {
-  if (tool === 'arrow') return buildArrowPath(start, end);
-  return new Line([start.x, start.y, end.x, end.y], { stroke: BASE_STROKE_COLOR, strokeWidth: BASE_STROKE_WIDTH });
+function buildLineOrArrow(tool, start, end, style) {
+  if (tool === 'arrow') return buildArrowPath(start, end, style);
+  return tag(new Line([start.x, start.y, end.x, end.y], { stroke: style.color, strokeWidth: style.strokeWidth }), 'line');
 }
 
 // Cloud (A7): rectangle-based, wavy border — a closed loop of outward-bowed
@@ -194,11 +203,11 @@ function buildCloudPathData(left, top, width, height) {
   return d;
 }
 
-function buildCloudShape(left, top, width, height) {
+function buildCloudShape(left, top, width, height, style) {
   return new Path(buildCloudPathData(left, top, width, height), {
-    fill: null,
-    stroke: BASE_STROKE_COLOR,
-    strokeWidth: BASE_STROKE_WIDTH,
+    fill: style.filled ? style.color : null,
+    stroke: style.color,
+    strokeWidth: style.strokeWidth,
   });
 }
 
@@ -218,8 +227,7 @@ function exitActiveEditing(canvas) {
   if (active?.isEditing) active.exitEditing();
 }
 
-function applyActiveTool(canvas, activeTool) {
-  exitActiveEditing(canvas);
+function applyActiveTool(canvas, activeTool, style) {
   const isFreeDrawing = FREE_DRAWING_TOOLS.has(activeTool);
   canvas.isDrawingMode = isFreeDrawing;
   if (isFreeDrawing) {
@@ -231,8 +239,8 @@ function applyActiveTool(canvas, activeTool) {
     // then resets the finished object back to a solid stroke + a real
     // `opacity` property, so both the live preview and the serialized state
     // are correct, not just one or the other.
-    canvas.freeDrawingBrush.color = withAlpha(BASE_STROKE_COLOR, TOOL_BRUSH_STYLES[activeTool].opacity);
-    canvas.freeDrawingBrush.width = BASE_STROKE_WIDTH;
+    canvas.freeDrawingBrush.color = withAlpha(style.color, FREE_DRAWING_OPACITY[activeTool]);
+    canvas.freeDrawingBrush.width = style.strokeWidth;
     // All line-based marks render solid only (A2) — never set strokeDashArray.
     // Side effect worth knowing about, not a bug: Fabric's PencilBrush switches
     // to a "clear + fully redraw the stroke so far on every mouse:move" path
@@ -255,18 +263,37 @@ function applyActiveTool(canvas, activeTool) {
   canvas.selection = !INTERACTIVE_TOOLS.has(activeTool);
 }
 
+// A4's "unless re-selected": re-applying the current global style to
+// whichever object is presently selected, live, without needing to place a
+// new annotation. Reuses the same tool-id tag every creation path already
+// sets, so this needs no per-object-type detection logic of its own.
+function applyStyleToObject(object, style) {
+  const tool = object.annotationTool;
+  if (tool === 'text' || tool === 'text-highlighter') {
+    // Text's color lives in `fill`; Text Highlighter is a filled rectangle
+    // with no stroke (see BOUNDS_SHAPE_TOOLS) — both restyle via `fill`.
+    object.set({ fill: style.color });
+  } else if (tool === 'arrow') {
+    object.set({ fill: style.color, stroke: style.color, strokeWidth: style.strokeWidth });
+  } else if (tool === 'pen' || tool === 'freeform-highlighter' || tool === 'line') {
+    // These are strokes (PencilBrush/Line output) — color lives in `stroke`,
+    // not `fill`, unlike Text/Text Highlighter above.
+    object.set({ stroke: style.color, strokeWidth: style.strokeWidth });
+  } else if (tool === 'rectangle' || tool === 'ellipse' || tool === 'cloud') {
+    object.set({ stroke: style.color, strokeWidth: style.strokeWidth, fill: style.filled ? style.color : null });
+  }
+}
+
 // Places a Textbox at the clicked point (already in this canvas's own PDF-
 // point coordinate space — `canvas.getScenePoint` accounts for the current
 // zoom, so no manual scale math is needed here, same Risk R1 guarantee as
 // everything else in this file) and drops the user straight into editing it.
-function placeTextbox(canvas, screenEvent) {
+function placeTextbox(canvas, screenEvent, style) {
   const point = canvas.getScenePoint(screenEvent);
-  const textbox = new Textbox('', {
-    left: point.x,
-    top: point.y,
-    fontSize: DEFAULT_TEXT_FONT_SIZE,
-    fill: BASE_STROKE_COLOR,
-  });
+  const textbox = tag(
+    new Textbox('', { left: point.x, top: point.y, fontSize: DEFAULT_TEXT_FONT_SIZE, fill: style.color }),
+    'text',
+  );
   canvas.add(textbox);
   canvas.setActiveObject(textbox);
   textbox.enterEditing();
@@ -284,7 +311,7 @@ function placeTextbox(canvas, screenEvent) {
   canvas.requestRenderAll();
 }
 
-// Bounding-box drag-to-place (Text Highlighter, Rectangle, Ellipse):
+// Bounding-box drag-to-place (Text Highlighter, Rectangle, Ellipse, Cloud):
 // `canvas.__boundsDrag` tracks the in-progress drag between mouse:down and
 // mouse:move/mouse:up (same start/finish-at-different-events shape as
 // free-drawing's `__strokeTool`, just for a shape instead of a path). Width/
@@ -292,23 +319,28 @@ function placeTextbox(canvas, screenEvent) {
 // since not every shape type stores its own size the same way (Ellipse's
 // `.width`/`.height` are derived from `rx`/`ry`, confirmed empirically —
 // reading them back would work too, but tracking directly is shape-agnostic).
-function startBoundsDrag(canvas, tool, screenEvent) {
+// `style` is captured once, at drag-start, and reused for every resize during
+// that same drag — not re-read live — so a style change made mid-drag (e.g.
+// via keyboard focus on the stroke-width input while the mouse is still held
+// down) can't retroactively change a shape that's already being drawn, the
+// same reasoning `__strokeTool` already applies to free-drawing strokes.
+function startBoundsDrag(canvas, tool, screenEvent, style) {
   const start = canvas.getScenePoint(screenEvent);
-  const shape = BOUNDS_SHAPE_TOOLS[tool].create(start.x, start.y);
+  const shape = BOUNDS_SHAPE_TOOLS[tool].create(start.x, start.y, style);
   canvas.add(shape);
-  canvas.__boundsDrag = { tool, start, shape, width: 0, height: 0 };
+  canvas.__boundsDrag = { tool, start, shape, style, width: 0, height: 0 };
 }
 
 function updateBoundsDrag(canvas, screenEvent) {
   const dragState = canvas.__boundsDrag;
   if (!dragState) return;
-  const { tool, start, shape } = dragState;
+  const { tool, start, shape, style } = dragState;
   const current = canvas.getScenePoint(screenEvent);
   const left = Math.min(start.x, current.x);
   const top = Math.min(start.y, current.y);
   const width = Math.abs(current.x - start.x);
   const height = Math.abs(current.y - start.y);
-  const nextShape = BOUNDS_SHAPE_TOOLS[tool].resize(shape, left, top, width, height);
+  const nextShape = BOUNDS_SHAPE_TOOLS[tool].resize(shape, left, top, width, height, style);
   if (nextShape !== shape) {
     canvas.remove(shape);
     canvas.add(nextShape);
@@ -341,21 +373,22 @@ function finishBoundsDrag(canvas) {
 // the endpoint" API without reaching into Fabric's path-parsing internals —
 // rebuilding both the same way keeps this one mechanism instead of two, and
 // an interactive drag creates at most a few dozen short-lived objects, not a
-// performance concern.
-function startLineDrag(canvas, tool, screenEvent) {
+// performance concern. `style` is captured at drag-start, same reasoning as
+// startBoundsDrag's comment above.
+function startLineDrag(canvas, tool, screenEvent, style) {
   const start = canvas.getScenePoint(screenEvent);
-  const shape = buildLineOrArrow(tool, start, start);
+  const shape = buildLineOrArrow(tool, start, start, style);
   canvas.add(shape);
-  canvas.__lineDrag = { tool, start, current: start, shape };
+  canvas.__lineDrag = { tool, start, current: start, shape, style };
 }
 
 function updateLineDrag(canvas, screenEvent) {
   const dragState = canvas.__lineDrag;
   if (!dragState) return;
-  const { tool, start, shape } = dragState;
+  const { tool, start, shape, style } = dragState;
   const current = canvas.getScenePoint(screenEvent);
   canvas.remove(shape);
-  const nextShape = buildLineOrArrow(tool, start, current);
+  const nextShape = buildLineOrArrow(tool, start, current, style);
   canvas.add(nextShape);
   dragState.shape = nextShape;
   dragState.current = current;
@@ -392,16 +425,18 @@ function finishLineDrag(canvas) {
 // matching the on-screen position at any zoom level (Risk R1).
 // `attachmentId` isn't used yet — kept in the signature for the save/load
 // wiring in task 3.x (persisting/loading the annotation JSON per attachment).
-const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pdfDoc, activeTool }, ref) {
+const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pdfDoc, activeTool, style }, ref) {
   const canvasesRef = useRef(new Map()); // pageNumber -> fabric.Canvas
   const savedStateRef = useRef(new Map()); // pageNumber -> fabric JSON (PDF point coords)
   const pdfDocRef = useRef(pdfDoc);
   // "Latest ref" pattern (same convention as PDFViewer.tsx): handlePageRendered
   // is async and called imperatively from outside React's render flow, so it
-  // needs the tool that's active *now*, not whatever was active when its own
-  // invocation started.
+  // needs the tool/style that's active *now*, not whatever was active when
+  // its own invocation started.
   const activeToolRef = useRef(activeTool);
   activeToolRef.current = activeTool;
+  const styleRef = useRef(style);
+  styleRef.current = style;
 
   if (pdfDocRef.current !== pdfDoc) {
     // A genuinely different document — nothing to carry forward.
@@ -409,9 +444,31 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
     pdfDocRef.current = pdfDoc;
   }
 
+  // Switching tools force-exits any in-progress text editing (see
+  // exitActiveEditing's comment) — but a style change alone must not, or
+  // touching a color/fill/stroke-width control while mid-typing would kick
+  // the user out of editing (and delete the box outright, via the same
+  // `editing:exited` cleanup, if it's still empty). Kept as its own effect,
+  // keyed on `[activeTool]` only, so it never re-runs for a `style` change.
   useEffect(() => {
-    canvasesRef.current.forEach((canvas) => applyActiveTool(canvas, activeTool));
+    canvasesRef.current.forEach((canvas) => exitActiveEditing(canvas));
   }, [activeTool]);
+
+  useEffect(() => {
+    canvasesRef.current.forEach((canvas) => applyActiveTool(canvas, activeTool, style));
+  }, [activeTool, style]);
+
+  // A4's "unless re-selected": if the user has an annotation selected right
+  // now, changing the global style also restyles that object live, not just
+  // whatever gets placed next.
+  useEffect(() => {
+    canvasesRef.current.forEach((canvas) => {
+      const active = canvas.getActiveObject();
+      if (!active) return;
+      applyStyleToObject(active, style);
+      canvas.requestRenderAll();
+    });
+  }, [style]);
 
   useImperativeHandle(
     ref,
@@ -436,7 +493,7 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
         canvasesRef.current.forEach((canvas, pageNumber) => {
           // Must run before toJSON() — see exitActiveEditing's comment.
           exitActiveEditing(canvas);
-          savedStateRef.current.set(pageNumber, canvas.toJSON());
+          savedStateRef.current.set(pageNumber, canvas.toJSON(['annotationTool']));
           canvas.dispose();
         });
         canvasesRef.current.clear();
@@ -449,7 +506,7 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
         const existing = canvasesRef.current.get(pageNumber);
         if (existing) {
           exitActiveEditing(existing);
-          savedStateRef.current.set(pageNumber, existing.toJSON());
+          savedStateRef.current.set(pageNumber, existing.toJSON(['annotationTool']));
           existing.dispose();
           canvasesRef.current.delete(pageNumber);
         }
@@ -491,23 +548,30 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
         // of which tool is active.
         canvas.lowerCanvasEl.style.pointerEvents = 'none';
 
+        // A stroke can take real time to draw; the active tool/style could
+        // change mid-stroke (e.g. Tab-focus + Enter on a toolbar button
+        // while the mouse is still held down elsewhere). Capture both when
+        // the stroke *starts*, and use that in path:created — not whatever's
+        // active when the mouse happens to come up — so a stroke drawn as
+        // Pen at red can't retroactively get tagged as the Highlighter's or
+        // repainted to a color picked after the fact.
         canvas.on('path:created', ({ path }) => {
-          const style = TOOL_BRUSH_STYLES[canvas.__strokeTool];
-          if (style) path.set({ stroke: BASE_STROKE_COLOR, opacity: style.opacity });
+          const tool = canvas.__strokeTool;
+          const strokeStyle = canvas.__strokeStyle;
+          const opacity = FREE_DRAWING_OPACITY[tool];
+          if (opacity !== undefined && strokeStyle) {
+            path.set({ stroke: strokeStyle.color, opacity });
+            tag(path, tool);
+          }
           canvas.requestRenderAll();
         });
 
         canvas.on('mouse:down', (event) => {
           const tool = activeToolRef.current;
+          const currentStyle = styleRef.current;
 
-          // A stroke can take real time to draw; the active tool could
-          // change mid-stroke (e.g. Tab-focus + Enter on a toolbar button
-          // while the mouse is still held down elsewhere). Capture which
-          // tool a stroke belongs to when it *starts*, and use that in
-          // path:created — not whatever's active when the mouse happens to
-          // come up — so a stroke drawn as Pen can't retroactively get
-          // tagged as the Highlighter's.
           canvas.__strokeTool = tool;
+          canvas.__strokeStyle = currentStyle;
 
           // Clicking an existing object (e.g. an already-placed text box or
           // highlight) should select/move it (or, for a text box already
@@ -517,11 +581,11 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
           if (event.target) return;
 
           if (tool === 'text') {
-            placeTextbox(canvas, event.e);
+            placeTextbox(canvas, event.e, currentStyle);
           } else if (BOUNDS_SHAPE_TOOL_IDS.has(tool) && !canvas.__boundsDrag) {
-            startBoundsDrag(canvas, tool, event.e);
+            startBoundsDrag(canvas, tool, event.e, currentStyle);
           } else if (POINT_TO_POINT_TOOLS.has(tool) && !canvas.__lineDrag) {
-            startLineDrag(canvas, tool, event.e);
+            startLineDrag(canvas, tool, event.e, currentStyle);
           }
         });
 
@@ -547,7 +611,7 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
         }
         // Applied after loadFromJSON (not just before) in case restoring
         // objects ever touches canvas-level interaction state.
-        applyActiveTool(canvas, activeToolRef.current);
+        applyActiveTool(canvas, activeToolRef.current, styleRef.current);
         canvas.requestRenderAll();
 
         canvasesRef.current.set(pageNumber, canvas);

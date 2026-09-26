@@ -73,19 +73,50 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   active if the user hasn't picked a different one; each tool still gets its own always-visible icon
   button (`Toolbar.jsx` + `toolbarIcons.tsx`, inline SVG, no icon-library dependency).
 - All line-based marks render solid only (A2); opacity fixed at 100%, not configurable (A3).
-- One **global** style — color (default red), fill (default transparent), stroke width (default 4pt);
-  changing it affects the active tool going forward, not existing annotations unless re-selected (A4).
-  Not yet a real control (`StyleControls`/`Toolbar`'s style row is task 2.10) — until then, every tool
-  that draws uses fixed constants in `AnnotationCanvas.jsx` (`#dc2626` red, 4, matching A4's defaults).
+- **One global style (A4, implemented)** — color (default red `#dc2626`), fill (default transparent),
+  stroke width (default 4pt) — `StyleControls.tsx` (color `<input type="color">`, fill checkbox, stroke
+  width number input), rendered in `Toolbar.jsx`, state owned one level up in `ViewerPage.jsx`
+  (`const [style, setStyle] = useState(DEFAULT_ANNOTATION_STYLE)`, passed to both `Toolbar.jsx` and
+  `AnnotationCanvas.jsx`) — one shared style object for every tool, not per-tool, not per-object. Every
+  tool's creation path (free-drawing brush color/width, `BOUNDS_SHAPE_TOOLS`'s `create`/`resize`,
+  `buildArrowPath`/`buildLineOrArrow`/`buildCloudShape`, `placeTextbox`) reads `style.color`/
+  `style.filled`/`style.strokeWidth` instead of the old hardcoded `BASE_STROKE_COLOR`/`BASE_STROKE_WIDTH`
+  constants (removed) — changing a control affects annotations placed *after* the change, not ones
+  already on the canvas, **unless** one of them is currently selected, in which case it also restyles
+  live (see below). `HIGHLIGHTER_OPACITY` (0.35) is the one hardcoded exception, kept as a constant
+  rather than folded into `style` — per A3, it's a fixed property of the Freeform/Text Highlighter tools
+  themselves, never a user-facing control, so it has no business being part of the *shared* style.
+  Every created object is tagged with which tool made it (`object.set('annotationTool', toolId)`, via a
+  `tag()` helper called at the end of every creation path) — this is what lets the "unless re-selected"
+  behavior interpret `style` correctly for an arbitrary already-placed object (e.g. text's color lives in
+  `fill`, a line's in `stroke`, a rectangle's fill only applies when `style.filled`) without re-deriving
+  the object's type from its current paint. The tag is included in `canvas.toJSON()`'s
+  `propertiesToInclude` (`['annotationTool']`) in both `handlePagesReset` and `handlePageRendered`'s
+  existing-canvas branch, so it survives `PDFViewer.tsx`'s serialize/dispose/reload cycle on every
+  zoom/pan change, not just the object's lifetime within one Fabric canvas instance. Two effects drive
+  this: one keyed on `[activeTool, style]` re-runs `applyActiveTool` (so the free-drawing brush's live
+  color/width track a style change even without a new stroke); one keyed on `[style]` alone checks every
+  tracked canvas for `canvas.getActiveObject()` and, if present, calls `applyStyleToObject(active, style)`
+  — the actual "unless re-selected" mechanism, dispatching on the object's `annotationTool` tag. A
+  drag-in-progress (bounds-drag or line/arrow-drag) captures `style` once at drag-*start*
+  (`dragState.style`) and reuses it for the whole gesture rather than re-reading it live, mirroring the
+  existing `canvas.__strokeTool` capture-at-start discipline free-drawing already used for the
+  "tool changed mid-stroke" case — a style change made mid-drag (e.g. via keyboard focus on the
+  stroke-width input while the mouse is still held down) can't retroactively alter a shape already being
+  drawn. The arrow's head is sized proportional to `style.strokeWidth` (`arrowheadSize`) rather than a
+  fixed constant, and is always filled solid with `style.color` regardless of `style.filled` — that
+  toggle is about closed shapes having an optional interior fill, not about whether an arrow *looks* like
+  an arrow, which requires a filled head unconditionally.
 - **Pen and Freeform Highlighter (A2, A3, implemented)**: `activeTool` is lifted from `Toolbar.jsx` up to
   `ViewerPage.jsx` (owns the state) and passed to both `Toolbar.jsx` (controlled) and
-  `AnnotationCanvas.jsx`. `AnnotationCanvas.jsx`'s `TOOL_BRUSH_STYLES` map (keys = free-drawing tool ids,
-  values = `{ opacity }`) is both the free-drawing membership test (`FREE_DRAWING_TOOLS` is derived from
-  its keys) and the per-tool style lookup — extending it is how any future free-drawing tool gets added
+  `AnnotationCanvas.jsx`. `AnnotationCanvas.jsx`'s `FREE_DRAWING_OPACITY` map (keys = free-drawing tool
+  ids, values = opacity) is both the free-drawing membership test (`FREE_DRAWING_TOOLS` is derived from
+  its keys) and the per-tool opacity lookup — extending it is how any future free-drawing tool gets added
   (through 2.13, no other tool in the task list is `PencilBrush`-based; 2.7's Text Highlighter is a
   drag-rectangle, not freehand, so it needs a parallel mechanism, not this one). Pen and Freeform
-  Highlighter share the same base color/width (`BASE_STROKE_COLOR`/`BASE_STROKE_WIDTH`) but differ in
-  `opacity` (1 vs. 0.35). Opacity is baked into the *live* brush color (`withAlpha`) so the in-progress
+  Highlighter share the same global `style.color`/`style.strokeWidth` (task 2.10) but differ in
+  `opacity` (1 vs. 0.35, `HIGHLIGHTER_OPACITY` — see A4 above for why that stays hardcoded, not part of
+  `style`). Opacity is baked into the *live* brush color (`withAlpha`) so the in-progress
   drag previews at the right transparency — Fabric paints that to a separate top context at the brush's
   raw color, and only creates the real `Path` object on mouse-up — and then reset on the finished path
   via Fabric's `path:created` event back to a solid stroke plus a real, distinct `opacity` property (not
@@ -98,7 +129,8 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   user-facing opacity *control* for line-based marks — Freeform Highlighter's semi-transparency is a
   fixed, hardcoded property of that specific tool, never adjustable, so both rules hold simultaneously.
   When `activeTool` is any free-drawing tool, every tracked page canvas gets `isDrawingMode = true` with
-  a `PencilBrush` at the shared base color/width, and Fabric's `upperCanvasEl` gets `pointer-events: auto`
+  a `PencilBrush` at the current global `style.color`/`style.strokeWidth`, and Fabric's `upperCanvasEl`
+  gets `pointer-events: auto`
   (`lowerCanvasEl` is always `pointer-events: none` — Fabric never attaches listeners to it — and
   `upperCanvasEl` is `none` too whenever no interactive tool is active, so the overlay doesn't intercept
   clicks meant for pan/zoom-controls). A `pointerdown` listener on `upperCanvasEl` stops propagation
@@ -118,7 +150,7 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   guarantee as everything else here) — only when the click didn't land on an existing object
   (`!event.target`, so clicking an existing text box selects/moves it — or, on a second click once
   already selected, enters editing, Fabric's own IText/Textbox behavior — instead of stacking a new one
-  on top). The new box gets the base color as its fill, drops the user straight into editing
+  on top). The new box gets the global `style.color` as its fill, drops the user straight into editing
   (`enterEditing()` + `selectAll()`), and removes itself on `editing:exited` if the user never typed
   anything, so clicking away *on the canvas* without typing doesn't leave an empty, invisible,
   forever-selectable annotation behind. That listener only fires from Fabric's own on-canvas deselect
@@ -144,13 +176,14 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   small (`MIN_DRAG_SIZE_SCREEN_PX`, checked in *screen* pixels via `width/height * canvas.getZoom()` — a
   fixed threshold in this canvas's zoom-dependent PDF-point space would let more incidental jitter
   through at low zoom than at high zoom) to be a real shape rather than an accidental click. Text
-  Highlighter is a filled, semi-transparent shape with no stroke — `fill: BASE_STROKE_COLOR`, a real
+  Highlighter is a filled, semi-transparent shape with no stroke — `fill: style.color`, a real
   `opacity: HIGHLIGHTER_OPACITY` property (not baked into the fill color, so it stays a real property in
   the serialized state for burn-in later) — sharing the same opacity constant Freeform Highlighter uses
   (extracted so the two tools' visual treatment can't drift apart by accident). Rectangle, Ellipse, and
-  Cloud are the reverse — `fill: null` (A4's "fill default transparent" — an outline only, letting the
-  page show through), `stroke: BASE_STROKE_COLOR`/`strokeWidth: BASE_STROKE_WIDTH`, no dash array (A2:
-  outlines render solid). Ellipse's own `.width`/`.height` are derived from `rx`/`ry` (confirmed
+  Cloud default to `fill: null` (A4's "fill default transparent" — an outline only, letting the page show
+  through) but fill with `style.color` when `style.filled` is true — one global color, not a second
+  independent fill color — plus `stroke: style.color`/`strokeWidth: style.strokeWidth`, no dash array
+  (A2: outlines render solid). Ellipse's own `.width`/`.height` are derived from `rx`/`ry` (confirmed
   empirically, not something this file has to keep in sync manually) — its `resize` sets
   `rx: width / 2, ry: height / 2`. Cloud (A7 — rectangle-based, wavy border, positioned right after the
   shape tools in the toolbar) is a single `Path`: its perimeter is split into roughly `CLOUD_BUMP_SIZE`
@@ -176,7 +209,7 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   than two different ones; an interactive drag creates at most a few dozen short-lived objects, not a
   performance concern. Arrow (one-sided per A2 — arrowhead at the end point only) is a single `Path` with
   two subpaths: the shaft (stopping short of the head's base so it doesn't visibly poke out past it) and
-  a filled triangle, sized proportional to `BASE_STROKE_WIDTH`, but clamped to at most half the arrow's
+  a filled triangle, sized proportional to `style.strokeWidth` (`arrowheadSize`), but clamped to at most half the arrow's
   actual drag length — without that clamp, any arrow shorter than the head's full length would have its
   head walk past the *start* point (on the far side of it, not between start and end), rendering an
   oversized head that swallows the whole line plus a shaft segment sticking out backward past where the
@@ -325,7 +358,7 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 | Phase | Status |
 |---|---|
 | 1 — Viewer (V1–V8) | Done (1.1–1.10): render/scroll/loading/thumbnails, page navigator, zoom in/out, pan, fit-width, confirmed absence of default pdf.js print/search UI, and component tests for `PDFViewer`/`PageNavigator`. |
-| 2 — Annotation tools (A1–A9) | Partial: Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). No tools yet — `Toolbar.jsx` is still a structural stub, and the overlay's `pointer-events: none` until a tool is active. |
+| 2 — Annotation tools (A1–A9) | Partial: Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). Pen/Freeform Highlighter (2.4/2.6), Text (2.5), Text Highlighter (2.7), Rectangle/Ellipse (2.8), Line/Arrow (2.8), Cloud (2.9), and the global style control (`StyleControls.tsx`, 2.10) are implemented. Not yet built: Polygon, Signature, select/move/resize/delete (A5/A6). |
 | 3 — Download & Save (D1–D3, S1–S8, F1–F6) | Not started. `pdf-lib` not installed; `applyBurnIn`/`saveAttachment` are placeholder stubs (`server/services/burn-in.js`, `server/services/storage.ts`) tied to an old timestamp/watermark concept, not the annotation model above. |
 | 4 — Permissions & sharing (P1–P5) | Partial: `shares` table and `canRead`/`canWrite`/`canBurnIn` logic exist and are unit-tested (`tests/permissions.test.ts`). Identity is still the `x-user-id` header stub (see §4 gap). `ShareModal`, `NoAccessState`, and the grant endpoint are not built. |
 | 5 — Hardening | Not started (depends on 2–4). |
