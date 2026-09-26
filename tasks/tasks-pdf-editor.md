@@ -1,8 +1,9 @@
 ## Relevant Files
 
 - `src/viewer/ViewerPage.jsx` - Existing route-level container (pre-existing JSX stub, left as-is per `agents/rules/typescript-standard.md` §2.3/§5); composes `Toolbar`, `PDFViewer`, `ThumbnailPanel`, and `AnnotationCanvas`.
-- `src/viewer/PDFViewer.tsx` - Main PDF viewer component (rendering, scroll, zoom, pan, fit-width).
-- `src/viewer/ThumbnailPanel.tsx` - Thumbnails sidebar, open by default, showing all pages.
+- `src/viewer/usePdfDocument.ts` - Shared hook: fetches the signed URL and loads the pdf.js document once per attachment; `ViewerPage` owns it and passes `pdfDoc`/`loading`/`error` down to `PDFViewer` and `ThumbnailPanel` so the PDF is only fetched/parsed once.
+- `src/viewer/PDFViewer.tsx` - Main PDF viewer component (rendering, scroll, zoom, pan, fit-width). Takes `pdfDoc`/`loading`/`error` as props.
+- `src/viewer/ThumbnailPanel.tsx` - Thumbnails sidebar, open by default, showing all pages. Takes `pdfDoc` as a prop; clicking a thumbnail scrolls the main view via the `pdf-page-<n>` id `PDFViewer` assigns to each page.
 - `src/viewer/PageNavigator.tsx` - Page navigation controls (prev/next buttons, type-to-jump input).
 - `src/styles/global.css` - Existing single global stylesheet (no per-component CSS files in this repo); gains the viewer/annotation/toolbar layout rules as each component lands.
 - `src/viewer/NoAccessState.tsx` - Empty state for no-permission or dead-link scenarios.
@@ -48,7 +49,7 @@
   - [x] 1.1 Install `pdfjs-dist` (the npm package for pdf.js) as a client dependency.
   - [x] 1.2 Create `PDFViewer.tsx`: load a PDF from a signed URL, render pages to a `<canvas>` element using pdf.js, and show a visible loading indicator while the file is being fetched and rendered (requirement V2).
   - [x] 1.3 Implement continuous scroll: render pages one below the other in a scrollable container so the user can scroll through the whole document (requirement V1).
-  - [ ] 1.4 Create `ThumbnailPanel.jsx`: render small thumbnail previews of every page in a sidebar that is open by default; clicking a thumbnail scrolls the main view to that page (requirement V3).
+  - [x] 1.4 Create `ThumbnailPanel.tsx`: render small thumbnail previews of every page in a sidebar that is open by default; clicking a thumbnail scrolls the main view to that page (requirement V3).
   - [ ] 1.5 Create `PageNavigator.jsx`: display the current page number, add previous/next buttons, and add a text input where the user can type a page number and press Enter to jump directly to it (requirement V4).
   - [ ] 1.6 Add zoom in / zoom out controls that re-render pages at the new scale (requirement V5).
   - [ ] 1.7 Add pan support so the user can drag the view when zoomed in (requirement V6).

@@ -32,7 +32,7 @@ export async function downloadAttachment(attachmentId: string): Promise<Attachme
     .single();
 
   if (attachmentError || !data) {
-    throw Object.assign(new Error('Attachment not found'), { status: 404 });
+    throw Object.assign(new Error(`Attachment not found: ${attachmentId}`), { status: 404 });
   }
 
   const attachment = data as AttachmentRow;
@@ -47,7 +47,7 @@ export async function downloadAttachment(attachmentId: string): Promise<Attachme
     .createSignedUrl(attachment.storage_path, SIGNED_URL_TTL_SECONDS);
 
   if (signedError || !signed) {
-    throw Object.assign(new Error('Could not generate signed URL'), { status: 500 });
+    throw Object.assign(new Error(`Could not generate signed URL for attachment: ${attachmentId}`), { status: 500 });
   }
 
   return {

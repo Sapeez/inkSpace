@@ -30,6 +30,57 @@ html, body {
   background: #f9fafb;
 }
 
+.viewer-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.thumbnails-panel {
+  width: 160px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  border-right: 1px solid #e5e7eb;
+  background: #fff;
+  padding: 0.75rem;
+}
+
+.thumbnails-panel-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.thumbnails-panel-error {
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+  border-radius: 4px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.8125rem;
+}
+
+.thumbnail-item {
+  display: block;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+.thumbnail-item:hover,
+.thumbnail-item:focus-visible {
+  border-color: #2563eb;
+}
+
+.thumbnail-canvas {
+  display: block;
+  width: 100%;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 15%);
+}
+
 .pdf-viewer {
   position: relative;
   flex: 1;

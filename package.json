@@ -11,7 +11,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node --import tsx server/index.js",
-    "test": "node --import tsx --test tests/",
+    "test": "node --import tsx --test tests/*.test.js tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "supabase:migrate": "supabase db push"
   },
@@ -27,6 +27,7 @@
     "ws": "^8.21.3"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^26.6.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
