@@ -239,6 +239,29 @@ function stubBoundingClientRect(canvas: any, width: number, height: number, left
   canvas.lowerCanvasEl.getBoundingClientRect = rect;
 }
 
+// Real DOM event dispatch, not `canvas.fire(...)` (which only fires Fabric's
+// *public* event bus and skips its actual internal mousedown/selection
+// handling entirely) — needed to exercise 2.13's fix, which hooks the real
+// native `pointerdown` listener already attached to `upperCanvasEl`. Fabric
+// listens for `mousedown`/`mousemove` on `upperCanvasEl` itself, but for
+// `mouseup` it dynamically adds a listener to `document` on mousedown (so a
+// drag that ends with the cursor off-canvas still gets a mouseup) — see
+// Fabric's own `_onMouseDown`/`removeListeners` for that asymmetry, which is
+// why `mouseup` below is dispatched on `document`, not `upperCanvasEl`.
+function dispatchPointerClick(canvas: any, clientX: number, clientY: number) {
+  const opts = { clientX, clientY, bubbles: true, button: 0 };
+  canvas.upperCanvasEl.dispatchEvent(new PointerEvent('pointerdown', opts));
+  canvas.upperCanvasEl.dispatchEvent(new MouseEvent('mousedown', opts));
+}
+
+function dispatchPointerMove(canvas: any, clientX: number, clientY: number) {
+  canvas.upperCanvasEl.dispatchEvent(new MouseEvent('mousemove', { clientX, clientY, bubbles: true }));
+}
+
+function dispatchPointerRelease(clientX: number, clientY: number) {
+  document.dispatchEvent(new MouseEvent('mouseup', { clientX, clientY, bubbles: true }));
+}
+
 test('the text tool places an empty, editable Textbox at the clicked point in canvas coordinates', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
@@ -1267,4 +1290,140 @@ test('addSignatureImage places onto the page currently most visible on screen, n
 
   assert.equal(ref.current.getCanvas(1).getObjects().length, 0);
   assert.equal(ref.current.getCanvas(2).getObjects().length, 1, 'placed onto the currently-visible page 2, not page 1');
+});
+
+// Selection/move/resize (2.13, requirement A5). Fabric's own default object
+// interactivity already provides click-to-select + drag-to-move + resize
+// handles for any non-drawing-mode tool (Text/Rectangle/Ellipse/Line/Arrow/
+// Cloud/Polygon/Text Highlighter all already respect a click landing on an
+// existing object via the `if (event.target) return` guard in `mouse:down`,
+// above) — nothing new was needed for those. The real gap was Pen/Freeform
+// Highlighter: Fabric's `isDrawingMode` mousedown handling never calls its
+// own target hit-testing at all, so a click on an existing annotation just
+// drew a new stroke over it instead of selecting it. These tests cover that
+// fix; resize-via-corner-handle itself is unmodified, built-in Fabric
+// behavior once selection works, so it isn't separately re-tested here.
+test('clicking an existing annotation while Pen is active selects it instead of drawing over it', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="pen" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  const existing = new Rect({ left: 50, top: 50, width: 100, height: 100, originX: 'left', originY: 'top' });
+  canvas.add(existing);
+
+  assert.equal(canvas.isDrawingMode, true, 'Pen starts in drawing mode, same as always');
+
+  dispatchPointerClick(canvas, 75, 75);
+  assert.equal(canvas.getActiveObject(), existing, 'the click selected the existing shape instead of starting a stroke');
+  assert.equal(canvas.isDrawingMode, false, 'suspended for the duration of this gesture');
+
+  dispatchPointerRelease(75, 75);
+  assert.equal(canvas.isDrawingMode, true, 'restored once the gesture (here, just a click) ends');
+  assert.equal(canvas.getObjects().length, 1, 'no stray stroke was created');
+});
+
+test('a selected annotation can be dragged to a new position while Pen is active', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="pen" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  const existing = new Rect({ left: 50, top: 50, width: 100, height: 100, originX: 'left', originY: 'top' });
+  canvas.add(existing);
+
+  dispatchPointerClick(canvas, 75, 75);
+  dispatchPointerMove(canvas, 125, 105); // +50x, +30y
+  dispatchPointerRelease(125, 105);
+
+  assert.equal(existing.left, 100, 'moved by the same delta as the drag');
+  assert.equal(existing.top, 80);
+  assert.equal(canvas.isDrawingMode, true, 'restored once the drag ends');
+});
+
+test('a selected annotation can be resized by dragging a corner handle while Pen is active', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="pen" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  const existing = new Rect({ left: 50, top: 50, width: 100, height: 100, originX: 'left', originY: 'top' });
+  canvas.add(existing);
+
+  // Select it first (same mechanism the two tests above already cover),
+  // then compute where Fabric actually put its bottom-right resize handle —
+  // resize-by-handle itself is unmodified, built-in Fabric behavior once
+  // selection works, not something this diff implements, but the selection
+  // fix above is what makes reaching this handle possible at all while Pen
+  // is active, so it's still this diff's behavior on the hook here.
+  dispatchPointerClick(canvas, 75, 75);
+  dispatchPointerRelease(75, 75);
+  existing.setCoords();
+  const handle = existing.oCoords.br;
+  assert.ok(handle, 'Fabric must have computed a bottom-right control position for a selected, controllable object');
+
+  dispatchPointerClick(canvas, handle.x, handle.y);
+  assert.equal(canvas.isDrawingMode, false, 'suspended again for this second gesture, same as the initial select');
+  dispatchPointerMove(canvas, handle.x + 40, handle.y + 40);
+  dispatchPointerRelease(handle.x + 40, handle.y + 40);
+
+  assert.ok(existing.width * existing.scaleX > 100, 'dragging the bottom-right handle outward grew the shape');
+  assert.ok(existing.height * existing.scaleY > 100);
+  assert.equal(canvas.isDrawingMode, true, 'restored once the resize gesture ends');
+});
+
+test('clicking empty canvas while Pen is active still draws — selection is not forced everywhere', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="pen" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  const existing = new Rect({ left: 50, top: 50, width: 100, height: 100, originX: 'left', originY: 'top' });
+  canvas.add(existing);
+
+  // Nowhere near `existing` — an empty part of the canvas.
+  dispatchPointerClick(canvas, 500, 700);
+  assert.equal(canvas.isDrawingMode, true, 'never suspended — this click is not on an existing object');
+  assert.equal(canvas.getActiveObject(), undefined, 'nothing got selected');
+
+  dispatchPointerRelease(500, 700);
+});
+
+test('starting a new stroke elsewhere clears a previously selected annotation\'s handles', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="pen" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  const existing = new Rect({ left: 50, top: 50, width: 100, height: 100, originX: 'left', originY: 'top' });
+  canvas.add(existing);
+  canvas.setActiveObject(existing);
+  assert.equal(canvas.getActiveObject(), existing);
+
+  // Fabric's own drawing-mode mousedown path never calls discardActiveObject
+  // the way its normal (non-drawing) path does — this is the one thing this
+  // fix does that Fabric's own selection logic wouldn't otherwise cover.
+  canvas.upperCanvasEl.dispatchEvent(new PointerEvent('pointerdown', { clientX: 500, clientY: 700, bubbles: true, button: 0 }));
+
+  assert.equal(canvas.getActiveObject(), undefined, 'selection is cleared before the new stroke starts');
 });

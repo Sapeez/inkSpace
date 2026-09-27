@@ -782,6 +782,41 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
         // captured at attach time, so it stays correct across tool changes.
         canvas.upperCanvasEl.addEventListener('pointerdown', (event) => {
           if (INTERACTIVE_TOOLS.has(activeToolRef.current)) event.stopPropagation();
+
+          // A5: clicking any placed annotation must select it, even while
+          // Pen/Freeform Highlighter is active. Fabric's own `isDrawingMode`
+          // mousedown handling (`__onMouseDown`, driven by the *mousedown*
+          // event Fabric listens for — see the class comment above this
+          // file's imports) skips its normal target hit-testing/selection
+          // entirely and always starts a brush stroke, by design, since
+          // every other pixel of the canvas should draw, not select. This
+          // runs on `pointerdown`, not `mousedown`: for a real pointer
+          // input, the browser always fully dispatches `pointerdown` before
+          // it synthesizes the following `mousedown` for the same click, so
+          // flipping `isDrawingMode` off here reliably lands before Fabric's
+          // own mousedown handler ever runs — letting its normal
+          // (non-drawing) path select `target` and set up its drag/resize
+          // transform instead. Restored on `mouse:up`, not immediately, so
+          // the whole drag/resize gesture runs with drawing mode off, not
+          // just the initial click. Also depends on the `stopPropagation()`
+          // just above already blocking PDFViewer.tsx's pan-gesture
+          // `preventDefault()` from running on this same event when zoomed
+          // in — see that comment; without it, this event would never reach
+          // this point at all while panning is possible.
+          if (canvas.isDrawingMode) {
+            const { target } = canvas.findTarget(event);
+            if (target && target.selectable !== false) {
+              canvas.isDrawingMode = false;
+              canvas.__drawingModeSuspendedForSelection = true;
+            } else if (canvas.getActiveObject()) {
+              // Fabric's drawing-mode mousedown path never calls
+              // `discardActiveObject` the way its normal path does, so
+              // without this, starting a new stroke elsewhere would leave a
+              // previously selected object's handles stuck on screen.
+              canvas.discardActiveObject();
+              canvas.requestRenderAll();
+            }
+          }
         });
         // Set once: this canvas never needs to receive pointer input itself
         // (Fabric only ever attaches listeners to upperCanvasEl), independent
@@ -851,6 +886,10 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
         canvas.on('mouse:up', () => {
           finishBoundsDrag(canvas);
           finishLineDrag(canvas);
+          if (canvas.__drawingModeSuspendedForSelection) {
+            canvas.isDrawingMode = true;
+            canvas.__drawingModeSuspendedForSelection = false;
+          }
         });
 
         const screenWidth = pdfCanvasEl.width;

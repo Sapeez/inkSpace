@@ -269,9 +269,25 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   and `handlePageRendered`'s existing-canvas branch) rather than leaving it on the canvas — otherwise
   (same bug class 2.5 already fixed for an empty Textbox surviving a reset) an untagged, half-built
   `Polyline` would get serialized into `savedStateRef` and reloaded back permanently on the next rescale.
-- Any placed annotation: select → move, resize, or delete (A5). Delete requires a confirmation modal,
-  title exactly `"Delete annotation?"`, body exactly `"Are you sure you want to delete this
-  annotation?"` (A6).
+- Any placed annotation: select → move, resize, or delete (A5). Selection/move/resize (A5) is Fabric's
+  own default object interactivity for every tool except Pen/Freeform Highlighter — those two put the
+  canvas in `isDrawingMode`, which skips Fabric's target hit-testing on `mousedown` entirely (by design,
+  so every pixel draws), so a click on an existing annotation would otherwise draw a new stroke over it
+  instead of selecting it. Fixed (2.13) by hooking the real native `pointerdown` listener already
+  attached to `upperCanvasEl` (added for the PDFViewer.tsx pan-gesture fix, see `AnnotationCanvas.jsx`):
+  while `isDrawingMode` is true, it hit-tests via `canvas.findTarget(event)`, and if the click landed on
+  a selectable object, flips `isDrawingMode` off for that one gesture (restored on `mouse:up`) so
+  Fabric's normal (non-drawing) mousedown path selects and sets up drag/resize on it instead; a click on
+  empty canvas while a prior selection exists calls `discardActiveObject()` first, since the
+  drawing-mode path never does that itself. This relies on `pointerdown` always being fully dispatched
+  before the browser synthesizes the following `mousedown` for the same click — real, spec'd ordering,
+  not something this file enforces — and, at `scale > 1`, on the pre-existing `stopPropagation()` on the
+  same listener already blocking PDFViewer.tsx's pan gesture from calling `preventDefault()` on this same
+  event first; without that, this fix would never see the event while panning is possible. Resize-by-
+  corner-handle is unmodified, built-in Fabric behavior once selection works, exercised by a dedicated
+  test (2.13) computing the real handle position via `existing.oCoords.br` after `setCoords()`. Delete
+  requires a confirmation modal, title exactly `"Delete annotation?"`, body
+  exactly `"Are you sure you want to delete this annotation?"` (A6) — not yet built (2.14).
 - Cloud: rectangle-based, wavy border, positioned right after the shape tools (A7).
 - Signature: positioned after Polygon, signature icon, image upload placed on the page at a default
   size the user can move/resize; validated (type + size) and re-encoded server-side, not stored/served
@@ -399,7 +415,7 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 | Phase | Status |
 |---|---|
 | 1 — Viewer (V1–V8) | Done (1.1–1.10): render/scroll/loading/thumbnails, page navigator, zoom in/out, pan, fit-width, confirmed absence of default pdf.js print/search UI, and component tests for `PDFViewer`/`PageNavigator`. |
-| 2 — Annotation tools (A1–A9) | Partial: Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). Pen/Freeform Highlighter (2.4/2.6), Text (2.5), Text Highlighter (2.7), Rectangle/Ellipse (2.8), Line/Arrow (2.8), Cloud (2.9), the global style control (`StyleControls.tsx`, 2.10), Polygon (2.11), and Signature (2.12) are implemented. Signature (`SignatureUploader.tsx`): validates type/size client-side, re-encodes the upload through an offscreen `<canvas>` before placing it (A8/R8's client-side half — the *authoritative* server-side re-check/re-encode is still task 5.3/5.6, not done), and places it via `AnnotationCanvas.jsx`'s `addSignatureImage` at a default width (clamped to the page's own width) on whichever page is currently on screen. Move/resize (A5) already works for it today as a side effect of Fabric's own default object interactivity, not bespoke code — 2.13/2.14 are about formalizing selection state and wiring the delete-confirmation modal, not about making objects draggable/resizable in the first place. Not yet built: the delete-confirmation modal (A6). |
+| 2 — Annotation tools (A1–A9) | Partial: Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). Pen/Freeform Highlighter (2.4/2.6), Text (2.5), Text Highlighter (2.7), Rectangle/Ellipse (2.8), Line/Arrow (2.8), Cloud (2.9), the global style control (`StyleControls.tsx`, 2.10), Polygon (2.11), Signature (2.12), and select/move/resize (2.13, A5) are implemented. Signature (`SignatureUploader.tsx`): validates type/size client-side, re-encodes the upload through an offscreen `<canvas>` before placing it (A8/R8's client-side half — the *authoritative* server-side re-check/re-encode is still task 5.3/5.6, not done), and places it via `AnnotationCanvas.jsx`'s `addSignatureImage` at a default width (clamped to the page's own width) on whichever page is currently on screen. Select/move/resize (2.13): see §3.2's A5 note for the Pen/Freeform Highlighter fix this required. Not yet built: the delete-confirmation modal (A6, task 2.14). |
 | 3 — Download & Save (D1–D3, S1–S8, F1–F6) | Not started. `pdf-lib` not installed; `applyBurnIn`/`saveAttachment` are placeholder stubs (`server/services/burn-in.js`, `server/services/storage.ts`) tied to an old timestamp/watermark concept, not the annotation model above. |
 | 4 — Permissions & sharing (P1–P5) | Partial: `shares` table and `canRead`/`canWrite`/`canBurnIn` logic exist and are unit-tested (`tests/permissions.test.ts`). Identity is still the `x-user-id` header stub (see §4 gap). `ShareModal`, `NoAccessState`, and the grant endpoint are not built. |
 | 5 — Hardening | Not started (depends on 2–4). |
