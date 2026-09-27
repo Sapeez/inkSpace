@@ -399,7 +399,7 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 | Phase | Status |
 |---|---|
 | 1 — Viewer (V1–V8) | Done (1.1–1.10): render/scroll/loading/thumbnails, page navigator, zoom in/out, pan, fit-width, confirmed absence of default pdf.js print/search UI, and component tests for `PDFViewer`/`PageNavigator`. |
-| 2 — Annotation tools (A1–A9) | Partial: Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). Pen/Freeform Highlighter (2.4/2.6), Text (2.5), Text Highlighter (2.7), Rectangle/Ellipse (2.8), Line/Arrow (2.8), Cloud (2.9), the global style control (`StyleControls.tsx`, 2.10), and Polygon (2.11) are implemented. Not yet built: Signature, select/move/resize/delete (A5/A6). |
+| 2 — Annotation tools (A1–A9) | Partial: Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). Pen/Freeform Highlighter (2.4/2.6), Text (2.5), Text Highlighter (2.7), Rectangle/Ellipse (2.8), Line/Arrow (2.8), Cloud (2.9), the global style control (`StyleControls.tsx`, 2.10), Polygon (2.11), and Signature (2.12) are implemented. Signature (`SignatureUploader.tsx`): validates type/size client-side, re-encodes the upload through an offscreen `<canvas>` before placing it (A8/R8's client-side half — the *authoritative* server-side re-check/re-encode is still task 5.3/5.6, not done), and places it via `AnnotationCanvas.jsx`'s `addSignatureImage` at a default width (clamped to the page's own width) on whichever page is currently on screen. Move/resize (A5) already works for it today as a side effect of Fabric's own default object interactivity, not bespoke code — 2.13/2.14 are about formalizing selection state and wiring the delete-confirmation modal, not about making objects draggable/resizable in the first place. Not yet built: the delete-confirmation modal (A6). |
 | 3 — Download & Save (D1–D3, S1–S8, F1–F6) | Not started. `pdf-lib` not installed; `applyBurnIn`/`saveAttachment` are placeholder stubs (`server/services/burn-in.js`, `server/services/storage.ts`) tied to an old timestamp/watermark concept, not the annotation model above. |
 | 4 — Permissions & sharing (P1–P5) | Partial: `shares` table and `canRead`/`canWrite`/`canBurnIn` logic exist and are unit-tested (`tests/permissions.test.ts`). Identity is still the `x-user-id` header stub (see §4 gap). `ShareModal`, `NoAccessState`, and the grant endpoint are not built. |
 | 5 — Hardening | Not started (depends on 2–4). |
@@ -411,6 +411,19 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 - **Burn-in and save services are placeholders** tied to an unrelated timestamp/watermark concept —
   they need to be rebuilt against the actual annotation JSON model, not extended in place.
 - **No coordinate-drift check exists yet** (Risk R1) — needed before Phase 2/3 can be called done.
+- **Rectangle/Ellipse/Text Highlighter render offset from the dragged box** (found while implementing
+  2.12, pre-existing since 2.7/2.8, not fixed here — out of scope for 2.12's diff): Fabric's object
+  default is `originX`/`originY: 'center'` in the installed version (`fabric@7.4.0`), so `left`/`top`
+  mean an object's *center*, not its top-left corner, unless overridden. `BOUNDS_SHAPE_TOOLS`'s
+  `rectangle`/`ellipse`/`text-highlighter` entries in `AnnotationCanvas.jsx` set `left`/`top` to the
+  drag box's top-left corner on every resize without overriding origin, so the rendered shape is
+  actually centered on that point — offset up-and-left from the real drag box by half its own
+  width/height (confirmed via `getBoundingRect()`; e.g. a 100×60pt drag from (10,10) renders at
+  bbox (-40.5, -20.5), not (10, 10)). Existing tests don't catch this because they only assert the raw
+  `left`/`top`/`width`/`height` properties equal the computed drag box, not the object's actual
+  rendered bounding box. Cloud/Line/Arrow/Polygon are unaffected (Path/Polygon shapes derive `left`/
+  `top` from their own absolute point data, so nothing external imposes a mismatched interpretation).
+  `addSignatureImage` (2.12) sets `originX: 'left', originY: 'top'` explicitly to avoid this.
 - **Every zoom/pan/fit-width change fully re-renders the document from page 1** (`PDFViewer.tsx`'s
   `[pdfDoc, scale]` effect clears and rebuilds every page, not just the ones near the viewport) — on
   the `large-multipage.pdf` fixture this means a single zoom click blanks the whole viewport and

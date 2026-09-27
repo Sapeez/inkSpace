@@ -1146,3 +1146,125 @@ test('rapid clicks that never move far from the first vertex do not create a str
     'a degenerate, essentially zero-size polygon must not be kept — there is no delete tool yet to remove it',
   );
 });
+
+// Signature (2.12): unlike every tool above, placement is driven by an
+// imperative call from ViewerPage.jsx (once SignatureUploader.tsx has
+// validated/re-encoded the file), not a canvas mouse gesture — see
+// `addSignatureImage`'s own comment in AnnotationCanvas.jsx. A real (blank)
+// <canvas> element stands in for the re-encoded one SignatureUploader.tsx
+// would hand over — Fabric's Image renderer requires an actual Image/Canvas
+// element as its draw source (a plain `{width, height}` object sizes the
+// Image object correctly but throws once `requestRenderAll` tries to
+// `drawImage` it).
+function fakeImageSource(width: number, height: number) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  return canvas;
+}
+
+test('addSignatureImage places a tagged image sized to a default width, preserving aspect ratio', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="pen" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800); // on-screen = native, scale 1
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+
+  // 2:1 aspect ratio, native size much bigger than the default placement width.
+  const placed = ref.current.addSignatureImage(fakeImageSource(1000, 500), 1000, 500);
+
+  assert.equal(placed, true, 'ViewerPage.jsx relies on this to decide whether to surface a placement error');
+  assert.equal(canvas.getObjects().length, 1);
+  const image = canvas.getObjects()[0];
+  assert.equal(image.annotationTool, 'signature');
+  assert.equal(image.type, 'image');
+
+  // Default width is 150pt (well under the page's own 600pt width, so the
+  // half-page-width clamp doesn't kick in here); height follows from the
+  // source's own 2:1 aspect ratio, not a second independent default.
+  assert.equal(image.scaleX, 150 / 1000);
+  assert.equal(image.scaleY, 150 / 1000);
+  const renderedWidth = image.width * image.scaleX;
+  const renderedHeight = image.height * image.scaleY;
+  assert.equal(renderedWidth, 150);
+  assert.equal(renderedHeight, 75);
+
+  // Centered horizontally, sitting near the bottom of the page.
+  assert.equal(image.left, (600 - renderedWidth) / 2);
+  assert.equal(image.top, 800 - renderedHeight - 40);
+
+  assert.equal(canvas.getActiveObject(), image, 'a freshly placed signature is selected, like every other tool\'s output');
+});
+
+test('addSignatureImage clamps the default width to half the page width on a narrow page', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1, 200, 300)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="pen" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(200, 300); // native 200pt-wide page, scale 1
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+
+  ref.current.addSignatureImage(fakeImageSource(400, 400), 400, 400);
+
+  const image = canvas.getObjects()[0];
+  const renderedWidth = image.width * image.scaleX;
+  // 150pt would overflow a 200pt-wide page's half-width budget (100pt) —
+  // clamped to 100pt instead of the usual default.
+  assert.equal(renderedWidth, 100);
+  assert.equal(image.left, (200 - renderedWidth) / 2);
+});
+
+test('addSignatureImage is a no-op if no page has been rendered yet', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="pen" />);
+
+  let placed: unknown;
+  assert.doesNotThrow(() => {
+    placed = ref.current.addSignatureImage(fakeImageSource(100, 100), 100, 100);
+  });
+  assert.equal(placed, false, 'the caller needs this to distinguish "nothing to place onto yet" from success');
+});
+
+test('addSignatureImage places onto the page currently most visible on screen, not always page 1', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc((pageNumber) => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="pen" />);
+
+  // Two pages' worth of Fabric canvases, tracked the same way handlePageRendered
+  // always tracks them, but with the `.pdf-viewer-page` class/id and `.pdf-viewer`
+  // ancestor PDFViewer.tsx actually assigns in the real app (AnnotationCanvas's
+  // own test helper, makePageWrapper, deliberately omits both — see its
+  // definition — so they're added here instead, only where this test needs them).
+  const viewer = document.createElement('div');
+  viewer.className = 'pdf-viewer';
+  viewer.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+  document.body.appendChild(viewer);
+
+  const { wrapper: wrapper1, pdfCanvas: pdfCanvas1 } = makePageWrapper(600, 800);
+  wrapper1.className = 'pdf-viewer-page';
+  wrapper1.id = 'pdf-page-1';
+  wrapper1.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+  viewer.appendChild(wrapper1);
+  await ref.current.handlePageRendered(1, wrapper1, pdfCanvas1);
+
+  const { wrapper: wrapper2, pdfCanvas: pdfCanvas2 } = makePageWrapper(600, 800);
+  wrapper2.className = 'pdf-viewer-page';
+  wrapper2.id = 'pdf-page-2';
+  wrapper2.getBoundingClientRect = () => ({ top: 800 }) as DOMRect;
+  viewer.appendChild(wrapper2);
+  await ref.current.handlePageRendered(2, wrapper2, pdfCanvas2);
+
+  // Page 2's wrapper sits exactly at the viewer's top (distance 0) — page 1's
+  // is 800px further away — so page 2 is "most visible" here.
+  wrapper1.getBoundingClientRect = () => ({ top: -800 }) as DOMRect;
+  wrapper2.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+
+  ref.current.addSignatureImage(fakeImageSource(100, 100), 100, 100);
+
+  assert.equal(ref.current.getCanvas(1).getObjects().length, 0);
+  assert.equal(ref.current.getCanvas(2).getObjects().length, 1, 'placed onto the currently-visible page 2, not page 1');
+});

@@ -23,6 +23,9 @@ export default function ViewerPage() {
         onToolChange={setActiveTool}
         style={style}
         onStyleChange={setStyle}
+        onSignaturePlace={({ source, naturalWidth, naturalHeight }) =>
+          annotationCanvasRef.current?.addSignatureImage(source, naturalWidth, naturalHeight) ?? false
+        }
       />
       <div className="viewer-main">
         <ThumbnailPanel pdfDoc={pdfDoc} />

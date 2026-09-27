@@ -9,14 +9,18 @@ import {
   ArrowIcon,
   CloudIcon,
   PolygonIcon,
-  SignatureIcon,
 } from './toolbarIcons.tsx';
 import StyleControls from './StyleControls.tsx';
+import SignatureUploader from '../annotation-canvas/SignatureUploader.tsx';
 
 // Fixed left-to-right order per requirement A1 — do not reorder. Ellipse is
 // the default *shape* tool (Rectangle/Line/Arrow are its siblings, not
 // separate defaults), but every tool is its own always-visible button here,
 // not a collapsed group; only Pen is the toolbar's overall default on mount.
+// Signature (last) isn't in this list — unlike every tool here, it isn't a
+// canvas-gesture mode tracked via `activeTool`, so it's rendered separately
+// below via SignatureUploader.tsx, right after this list, to keep its
+// required toolbar position (A1) without forcing it into this shape.
 const TOOLS = [
   { id: 'pen', label: 'Pen', testId: 'tool-pen', Icon: PenIcon },
   { id: 'freeform-highlighter', label: 'Freeform Highlighter', testId: 'tool-freeform-highlighter', Icon: FreeformHighlighterIcon },
@@ -28,10 +32,9 @@ const TOOLS = [
   { id: 'arrow', label: 'Arrow', testId: 'tool-arrow', Icon: ArrowIcon },
   { id: 'cloud', label: 'Cloud', testId: 'tool-cloud', Icon: CloudIcon },
   { id: 'polygon', label: 'Polygon', testId: 'tool-polygon', Icon: PolygonIcon },
-  { id: 'signature', label: 'Signature', testId: 'tool-signature', Icon: SignatureIcon },
 ];
 
-export default function Toolbar({ attachmentId, activeTool, onToolChange, style, onStyleChange }) {
+export default function Toolbar({ attachmentId, activeTool, onToolChange, style, onStyleChange, onSignaturePlace }) {
   return (
     <header className="toolbar" role="toolbar" aria-label="Annotation tools" data-testid="annotation-toolbar">
       <span className="toolbar-attachment">Attachment: {attachmentId}</span>
@@ -49,6 +52,7 @@ export default function Toolbar({ attachmentId, activeTool, onToolChange, style,
             <Icon />
           </button>
         ))}
+        <SignatureUploader onPlace={onSignaturePlace} />
       </div>
       <StyleControls style={style} onStyleChange={onStyleChange} />
     </header>

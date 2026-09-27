@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
-import { Canvas, Ellipse, Line, Path, PencilBrush, Polygon, Polyline, Rect, Textbox } from 'fabric';
+import { Canvas, Ellipse, FabricImage, Line, Path, PencilBrush, Polygon, Polyline, Rect, Textbox } from 'fabric';
+import { getMostVisiblePageNumber } from '../viewer/viewerPageTracking';
 
 // A4: color/fill/stroke-width are one *global* style, owned by ViewerPage.jsx
 // (StyleControls.tsx) and passed in as the `style` prop — not per-tool, not
@@ -225,6 +226,23 @@ function buildCloudShape(left, top, width, height, style) {
 }
 
 const DEFAULT_TEXT_FONT_SIZE = 16;
+
+// Signature (A8): unlike every other tool above, placement isn't a canvas
+// gesture driven by `activeTool`/mouse events — SignatureUploader.tsx
+// validates/re-encodes the file and hands the result to `addSignatureImage`
+// (below) directly, via ViewerPage.jsx. A default width in PDF points (not
+// the uploaded image's native pixel size, which could be thousands of
+// pixels wide and swallow the whole page) keeps the placed signature a
+// sensible, move/resize-from-here size regardless of what the user uploaded.
+const DEFAULT_SIGNATURE_WIDTH_PT = 150;
+// Clamped against the page's own width too, so a narrow page doesn't get an
+// oversized default signature relative to its own content area.
+const SIGNATURE_MAX_WIDTH_FRACTION_OF_PAGE = 0.5;
+// Signatures conventionally sit near the bottom of a page; this is just the
+// default placement — like every other tool's output, it's a normal
+// selectable/movable/resizable Fabric object once placed (Fabric's own
+// built-in selection/transform handles, not anything special-cased here).
+const SIGNATURE_BOTTOM_MARGIN_PT = 40;
 
 // A Textbox mid-edit doesn't get cleaned up (its `editing:exited` listener,
 // which removes it if left empty, only fires from Fabric's own on-canvas
@@ -650,6 +668,65 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
       // convert first.
       getCanvas(pageNumber) {
         return canvasesRef.current.get(pageNumber) ?? null;
+      },
+
+      // Called by ViewerPage.jsx once SignatureUploader.tsx has validated and
+      // re-encoded an uploaded image. `source` is a canvas element (Fabric's
+      // Image accepts a canvas or an img as its drawable source, and
+      // serializes a canvas source via `toDataURL()`, so no separate decode
+      // step is needed here — see SignatureUploader.tsx's own comments for
+      // why re-encoding happens there, before this call, rather than here).
+      // Places onto whichever page is currently most visible on screen —
+      // same DOM-based lookup PageNavigator.tsx uses for "current page",
+      // rather than this component tracking its own copy of that state.
+      // Returns whether the image was actually placed, so ViewerPage.jsx can
+      // surface a visible error (via SignatureUploader.tsx's own error slot)
+      // instead of the file picker silently closing with nothing happening —
+      // a real, reachable case: this tool is available before the first page
+      // has finished rendering, since Toolbar.jsx doesn't gate on `pdfDoc`/
+      // `loading`.
+      addSignatureImage(source, naturalWidth, naturalHeight) {
+        if (naturalWidth <= 0 || naturalHeight <= 0) return false;
+
+        const viewerContainer = document.querySelector('.pdf-viewer');
+        const targetPage = viewerContainer
+          ? getMostVisiblePageNumber(viewerContainer)
+          : canvasesRef.current.keys().next().value ?? null;
+        const canvas = targetPage != null ? canvasesRef.current.get(targetPage) : null;
+        if (!canvas) return false;
+
+        // The canvas's own `.width`/`.height` are screen pixels (set by
+        // `setDimensions` in handlePageRendered, below) — dividing out the
+        // current zoom recovers this page's native PDF-point dimensions,
+        // the same space every object on it is positioned in (Risk R1).
+        const zoom = canvas.getZoom();
+        const pageWidthPt = canvas.width / zoom;
+        const pageHeightPt = canvas.height / zoom;
+
+        const targetWidth = Math.min(DEFAULT_SIGNATURE_WIDTH_PT, pageWidthPt * SIGNATURE_MAX_WIDTH_FRACTION_OF_PAGE);
+        const scale = targetWidth / naturalWidth;
+        const targetHeight = naturalHeight * scale;
+
+        const image = tag(
+          new FabricImage(source, {
+            // Fabric's own object default is origin 'center' (its `left`/
+            // `top` mean the object's *center*, not its top-left corner) —
+            // pinned to 'left'/'top' here so the position computed above
+            // (top-left of the box the image should occupy) means what it
+            // says.
+            originX: 'left',
+            originY: 'top',
+            left: (pageWidthPt - targetWidth) / 2,
+            top: Math.max(0, pageHeightPt - targetHeight - SIGNATURE_BOTTOM_MARGIN_PT),
+            scaleX: scale,
+            scaleY: scale,
+          }),
+          'signature',
+        );
+        canvas.add(image);
+        canvas.setActiveObject(image);
+        canvas.requestRenderAll();
+        return true;
       },
 
       handlePagesReset() {

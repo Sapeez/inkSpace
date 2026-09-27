@@ -66,6 +66,38 @@ html, body {
   color: #2563eb;
 }
 
+.signature-uploader {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.signature-uploader-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.signature-uploader-error {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1;
+  margin-top: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+}
+
 .style-controls {
   display: flex;
   align-items: center;
