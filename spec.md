@@ -285,9 +285,27 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   same listener already blocking PDFViewer.tsx's pan gesture from calling `preventDefault()` on this same
   event first; without that, this fix would never see the event while panning is possible. Resize-by-
   corner-handle is unmodified, built-in Fabric behavior once selection works, exercised by a dedicated
-  test (2.13) computing the real handle position via `existing.oCoords.br` after `setCoords()`. Delete
-  requires a confirmation modal, title exactly `"Delete annotation?"`, body
-  exactly `"Are you sure you want to delete this annotation?"` (A6) — not yet built (2.14).
+  test (2.13) computing the real handle position via `existing.oCoords.br` after `setCoords()`.
+  **Delete (A6, implemented, 2.14)**: pressing Delete or Backspace requests confirmation rather than
+  deleting immediately — a `document`-level `keydown` listener in `AnnotationCanvas.jsx` (attached once,
+  not per-canvas, since a plain `<canvas>` element isn't focusable by default and the fix must work
+  regardless of which page's canvas the user last clicked on) walks every tracked page canvas
+  (`getSelectedAnnotation`) for the first one with a live `getActiveObject()` and, if found, calls
+  `onRequestDelete` (a prop wired from `ViewerPage.jsx`, which owns the actual confirmation modal's open
+  state — `AnnotationCanvas.jsx` renders nothing of its own). The listener is skipped entirely
+  (`isEditableElementFocused`) when `document.activeElement` is a real form control (`INPUT`/`TEXTAREA`/
+  `SELECT`/`contentEditable`) — which, for free, also covers a Textbox annotation currently mid-edit,
+  since Fabric's own `enterEditing()` focuses its offscreen `hiddenTextarea` (a `TEXTAREA` element), so
+  Backspace while actually typing into a text annotation is never intercepted. `ViewerPage.jsx` reuses the
+  existing generic `ConfirmModal.jsx` (not a separate `DeleteConfirmModal.jsx` — see Relevant Files in
+  `tasks/tasks-pdf-editor.md`), passing the exact required title/body copy and explicit `data-testid`
+  props (`ConfirmModal.jsx` gained optional `testId`/`titleTestId`/`messageTestId`/`confirmTestId`/
+  `cancelTestId` props for this, all opt-in so any other future caller is unaffected) matching
+  `tests/consts/inkSpace.ts`'s pre-existing `DELETE_CONFIRM_*` test-id contract. Confirming calls a new
+  imperative-handle method, `deleteActiveObject()`, which re-finds the selected annotation at call time
+  (not whatever was selected when Delete was first pressed, since confirming happens via a separate,
+  later click) and removes it from its canvas; cancelling just closes the modal, leaving the annotation
+  untouched (matches the "Cancel during delete confirmation" edge case in §5).
 - Cloud: rectangle-based, wavy border, positioned right after the shape tools (A7).
 - Signature: positioned after Polygon, signature icon, image upload placed on the page at a default
   size the user can move/resize; validated (type + size) and re-encoded server-side, not stored/served
@@ -415,7 +433,7 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 | Phase | Status |
 |---|---|
 | 1 — Viewer (V1–V8) | Done (1.1–1.10): render/scroll/loading/thumbnails, page navigator, zoom in/out, pan, fit-width, confirmed absence of default pdf.js print/search UI, and component tests for `PDFViewer`/`PageNavigator`. |
-| 2 — Annotation tools (A1–A9) | Partial: Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). Pen/Freeform Highlighter (2.4/2.6), Text (2.5), Text Highlighter (2.7), Rectangle/Ellipse (2.8), Line/Arrow (2.8), Cloud (2.9), the global style control (`StyleControls.tsx`, 2.10), Polygon (2.11), Signature (2.12), and select/move/resize (2.13, A5) are implemented. Signature (`SignatureUploader.tsx`): validates type/size client-side, re-encodes the upload through an offscreen `<canvas>` before placing it (A8/R8's client-side half — the *authoritative* server-side re-check/re-encode is still task 5.3/5.6, not done), and places it via `AnnotationCanvas.jsx`'s `addSignatureImage` at a default width (clamped to the page's own width) on whichever page is currently on screen. Select/move/resize (2.13): see §3.2's A5 note for the Pen/Freeform Highlighter fix this required. Not yet built: the delete-confirmation modal (A6, task 2.14). |
+| 2 — Annotation tools (A1–A9) | Done (2.1–2.14; 2.15's tests land alongside): Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). Pen/Freeform Highlighter (2.4/2.6), Text (2.5), Text Highlighter (2.7), Rectangle/Ellipse (2.8), Line/Arrow (2.8), Cloud (2.9), the global style control (`StyleControls.tsx`, 2.10), Polygon (2.11), Signature (2.12), select/move/resize (2.13, A5), and the delete-confirmation modal (2.14, A6) are implemented. Signature (`SignatureUploader.tsx`): validates type/size client-side, re-encodes the upload through an offscreen `<canvas>` before placing it (A8/R8's client-side half — the *authoritative* server-side re-check/re-encode is still task 5.3/5.6, not done), and places it via `AnnotationCanvas.jsx`'s `addSignatureImage` at a default width (clamped to the page's own width) on whichever page is currently on screen. Select/move/resize (2.13): see §3.2's A5 note for the Pen/Freeform Highlighter fix this required. Delete (2.14): see §3.2's A6 note. |
 | 3 — Download & Save (D1–D3, S1–S8, F1–F6) | Not started. `pdf-lib` not installed; `applyBurnIn`/`saveAttachment` are placeholder stubs (`server/services/burn-in.js`, `server/services/storage.ts`) tied to an old timestamp/watermark concept, not the annotation model above. |
 | 4 — Permissions & sharing (P1–P5) | Partial: `shares` table and `canRead`/`canWrite`/`canBurnIn` logic exist and are unit-tested (`tests/permissions.test.ts`). Identity is still the `x-user-id` header stub (see §4 gap). `ShareModal`, `NoAccessState`, and the grant endpoint are not built. |
 | 5 — Hardening | Not started (depends on 2–4). |

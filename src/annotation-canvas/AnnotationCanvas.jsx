@@ -588,6 +588,41 @@ function cancelPendingGestures(canvas) {
   cancelPolygonInProgress(canvas);
 }
 
+// A6: Delete/Backspace on a selected annotation opens a confirmation modal
+// (owned by ViewerPage.jsx, via `onRequestDelete`) rather than deleting
+// immediately — the actual removal only happens if the caller later invokes
+// `deleteActiveObject()` on this component's ref, once the user confirms.
+// Only one canvas (one page) can realistically have a live selection at a
+// time in normal use (selecting on another page doesn't call
+// `discardActiveObject` on this one, a pre-existing gap unrelated to this
+// feature — see the A5 selection-fix comments below), so "the" selected
+// annotation is simply the first one found while walking every tracked page
+// canvas, not something this component needs to track as its own extra
+// piece of state.
+function getSelectedAnnotation(canvasesMap) {
+  for (const canvas of canvasesMap.values()) {
+    const active = canvas.getActiveObject();
+    if (active) return { canvas, active };
+  }
+  return null;
+}
+
+// Guards the Delete/Backspace listener below against two unrelated cases
+// that must NOT open the delete-confirmation modal: (1) the user is typing
+// Backspace into an ordinary form control (e.g. the stroke-width input,
+// SignatureUploader's error text isn't focusable but a future filename
+// field would be) that merely happens to share the keyboard shortcut: (2) a
+// Textbox annotation is currently mid-edit — Fabric's IText/Textbox
+// implementation moves focus to its own offscreen `hiddenTextarea` while
+// editing, so checking `document.activeElement`'s tag also covers this case
+// for free, without this file needing to separately check the active
+// object's `isEditing` flag.
+function isEditableElementFocused() {
+  const el = document.activeElement;
+  if (!el) return false;
+  return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable;
+}
+
 // PDFViewer.tsx owns the actual page DOM and rebuilds it wholesale on every
 // zoom/document change (it has no stable per-page DOM to attach to across
 // scale changes). Rather than guessing at that timing via a MutationObserver,
@@ -605,7 +640,7 @@ function cancelPendingGestures(canvas) {
 // matching the on-screen position at any zoom level (Risk R1).
 // `attachmentId` isn't used yet — kept in the signature for the save/load
 // wiring in task 3.x (persisting/loading the annotation JSON per attachment).
-const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pdfDoc, activeTool, style }, ref) {
+const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pdfDoc, activeTool, style, onRequestDelete }, ref) {
   const canvasesRef = useRef(new Map()); // pageNumber -> fabric.Canvas
   const savedStateRef = useRef(new Map()); // pageNumber -> fabric JSON (PDF point coords)
   const pdfDocRef = useRef(pdfDoc);
@@ -617,6 +652,11 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
   activeToolRef.current = activeTool;
   const styleRef = useRef(style);
   styleRef.current = style;
+  // Same "latest ref" reasoning: the document-level keydown listener below
+  // is attached once, on mount, so it needs whichever `onRequestDelete` is
+  // current at keypress time, not whatever was passed in on that first mount.
+  const onRequestDeleteRef = useRef(onRequestDelete);
+  onRequestDeleteRef.current = onRequestDelete;
 
   if (pdfDocRef.current !== pdfDoc) {
     // A genuinely different document — nothing to carry forward.
@@ -638,6 +678,29 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
   useEffect(() => {
     canvasesRef.current.forEach((canvas) => applyActiveTool(canvas, activeTool, style));
   }, [activeTool, style]);
+
+  // A6: Delete/Backspace on a selected annotation requests confirmation
+  // rather than deleting outright — attached to `document`, not any one
+  // canvas element, since a plain `<canvas>` isn't focusable by default and
+  // this needs to fire regardless of which page's canvas the user last
+  // clicked on. `preventDefault()` only once a real deletable selection is
+  // found: Backspace with nothing focused is the browser's own "navigate
+  // back" shortcut in some browsers, so letting it through in every other
+  // case (nothing selected, or a real form control focused, per
+  // `isEditableElementFocused`) preserves that.
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+      if (isEditableElementFocused()) return;
+      if (!getSelectedAnnotation(canvasesRef.current)) return;
+
+      event.preventDefault();
+      onRequestDeleteRef.current?.();
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // A4's "unless re-selected": if the user has an annotation selected right
   // now, changing the global style also restyles that object live, not just
@@ -668,6 +731,26 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
       // convert first.
       getCanvas(pageNumber) {
         return canvasesRef.current.get(pageNumber) ?? null;
+      },
+
+      // A6: called by ViewerPage.jsx only after the user confirms the
+      // "Delete annotation?" modal — never on the initial Delete/Backspace
+      // press itself (see the keydown effect above, which only *requests*
+      // confirmation). Re-finds the selected annotation at call time rather
+      // than trusting anything captured when the key was pressed, since the
+      // confirmation modal is a separate, later UI interaction. Returns
+      // whether anything was actually removed, so a caller could tell "the
+      // selection went away before confirming" apart from "delete
+      // succeeded" if that ever mattered.
+      deleteActiveObject() {
+        const found = getSelectedAnnotation(canvasesRef.current);
+        if (!found) return false;
+
+        const { canvas, active } = found;
+        canvas.discardActiveObject();
+        canvas.remove(active);
+        canvas.requestRenderAll();
+        return true;
       },
 
       // Called by ViewerPage.jsx once SignatureUploader.tsx has validated and
