@@ -313,30 +313,93 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
 - No annotation capability beyond A1–A8 for edit users — no notes tool, no cover pages, nothing
   unlisted (A9; see §6 Out of Scope).
 
-### 3.3 Download (D1–D3)
-- "Download" available from the viewer (D1); output includes all annotations burned in (D2); filename
-  is unchanged from the original attachment (D3).
+### 3.3 Download (D1–D3, implemented)
+- "Download" available from the viewer toolbar (`Toolbar.jsx`'s `.toolbar-actions`, `TEST_IDS.DOWNLOAD_BUTTON`)
+  (D1); calls the burn-in endpoint with the current annotation state and decodes the result straight to a
+  browser download — output includes every annotation burned in (D2); filename is the *original*
+  attachment's filename, taken from the burn-in response, never the Save flow's renamed/timestamped one
+  (D3). `ViewerPage.jsx`'s `handleDownload` guards against a second concurrent download while one is
+  already in flight (`downloading` state) and surfaces a fetch/burn-in failure as inline text next to the
+  button (`TEST_IDS`-unlisted `download-error` testid — D1–D3 don't specify a failure UX, so this is a
+  minimal "never fail silently" floor, not a new modal/toast system).
 
-### 3.4 Save as new attachment (S1–S8, F1–F6)
-- "Save" opens a "Save attachment" modal (S1), filename field pre-populated per the filename rules
-  below (S2).
-- On confirm: annotations burn into the PDF (server-side) before persisting as a **new** attachment row
-  — the original is never mutated (S3).
-- Progress shown while in flight (S4); filename field, Cancel, and the "X" close control are all
-  visibly disabled during save (S5).
+### 3.4 Save as new attachment (S1–S8, F1–F6, implemented)
+- "Save" (`TEST_IDS.SAVE_BUTTON`, `Toolbar.jsx`) opens `SaveModal.tsx` (S1), filename field pre-populated
+  per the filename rules below (S2).
+- On confirm: annotations burn into the PDF via the burn-in endpoint, then the result is persisted via
+  `POST /api/attachments` — a **new** attachment row every time (`saveAttachment` in
+  `server/services/storage.ts` has no update/overwrite code path at all, not just a convention callers
+  happen to follow) — the original attachment/its Storage object are never written to (S3).
+- Progress shown while in flight (`TEST_IDS.SAVE_PROGRESS_INDICATOR`, S4); the filename field, Cancel, and
+  the "X" close control all get both `disabled` *and* a matching visual style
+  (`global.css`'s `.save-modal-*:disabled` rules — a `disabled` prop with no style change is a review
+  finding per `agents/skills/frontend-patterns.md`) during save (S5).
 - Failure toast, exact text: `"Couldn't save <Attachment name>."` (S6). Success toast, exact text:
-  `"<attachment name> saved successfully to workspace."` (S7). Either way, **the modal stays open** —
-  it is never auto-dismissed (S8).
+  `"<attachment name> saved successfully to workspace."` (S7). **`<Attachment name>` is the filename this
+  specific save attempt submitted** (captured at confirm-click time, before the async burn-in/save calls),
+  not the original attachment's name — if a user changes the filename field, submits, and it fails, the
+  toast names what they actually tried to save as. Either way, **the modal stays open** — `SaveModal.tsx`
+  has no code path that calls `onClose` after a save settles, success or failure (S8).
+- New attachments are always owned by whoever saves them (`req.headers['x-user-id']` at request time),
+  not the original attachment's owner — someone with only `edit` share access can save a copy they now own.
 
-**Filename rules:**
-- Default = `<existing filename> <UTC timestamp>` (F1); timestamp format `<day><month><year><hour><minute>`, UTC always, regardless of viewer timezone (F2).
-- If the filename already ends in a timestamp in this format, the new one **replaces** it rather than
-  appending a second one (F3).
-- Validation, checked client-side (instant feedback) and re-checked server-side (authoritative):
-  - Empty → `"Required field"` (F4)
+**Filename rules (implemented in `src/utils/filenameUtils.ts`, shared by the client and
+`server/routes/attachments.js` so client and server can't drift):**
+- Default = `<existing filename> <UTC timestamp>` (F1); timestamp format `<day><month><year><hour><minute>`
+  (`DDMMYYYYHHmm`, all zero-padded), UTC always, regardless of viewer timezone (F2).
+- **Implementation decision (F1/F2, not otherwise specified):** the timestamp is inserted *before* the
+  file extension, with a single space separator (`report.pdf` → `report 270920261834.pdf`), not appended
+  after it — otherwise the extension would land in the middle of the filename and the browser-facing
+  download would lose its `.pdf` suffix.
+- If the filename's base (before the extension) already ends in a timestamp in this exact
+  space-plus-12-digits shape, the new one **replaces** it rather than appending a second one (F3) — a
+  trailing number that isn't in this exact shape (e.g. `invoice 42.pdf`) is left alone and a new timestamp
+  is appended normally, not mistaken for an existing one.
+- Validation (`validateFilename`), checked client-side (`SaveModal.tsx`, on change and on submit) and
+  re-checked server-side (`POST /api/attachments`, authoritative):
+  - Empty (or whitespace-only) → `"Required field"` (F4)
   - `> 255` chars → `"255 characters maximum"` (F5)
-  - Disallowed characters (path separators / OS-reserved characters — exact set to be enumerated
-    during implementation) → `"Invalid characters"` (F6)
+  - Path separators (`/`, `\`), the Windows-reserved set (`* ? " < > | :`), or control characters →
+    `"Invalid characters"` (F6)
+
+**Burn-in (`server/services/burn-in.ts`, via `pdf-lib`):**
+- Takes the Fabric.js annotation JSON `AnnotationCanvas.jsx`'s `getAnnotationsForBurnIn()` produces (one
+  entry per page that has at least one object, in that page's own PDF-point space — no client-side
+  coordinate conversion, matching every other Risk R1 guarantee in this feature) and draws each object onto
+  a copy of the original PDF's pages via `pdf-lib`.
+- Coordinate math (`server/services/annotationGeometry.ts`, deliberately dependency-free — see the file's
+  own comment — and unit-tested in `tests/annotationGeometry.test.ts` independent of whether `pdf-lib`
+  happens to be installed) derives each object's current bounding box from `left`/`top`/`width`/`height`/
+  `scaleX`/`scaleY`/`originX`/`originY` exactly as Fabric itself interprets them — **including** the
+  documented Rectangle/Ellipse/Text-Highlighter center-origin offset (§9) — so a burned annotation matches
+  whatever is actually on screen, bug and all, rather than silently "correcting" a separately-tracked,
+  separately-scoped issue. Line/Path (Arrow, Cloud, pen/highlighter strokes)/Polygon additionally re-derive
+  their current on-canvas position from their *raw*, creation-time point data (which Fabric never rewrites
+  on move/resize) re-anchored onto that current bounding box — this is what keeps a dragged or resized
+  annotation burning in at its current position, not its original one.
+- **Endpoint contract:** `POST /api/burn-in/:attachmentId` (the existing route's own mount path — task 3.2
+  described this as `/api/attachments/:id/burn-in`, but the file already existed under `/api/burn-in`
+  before this task, gated by `requirePermission(canBurnIn)`; reusing it rather than adding a second route
+  for the same operation) with body `{ pages: [{ pageNumber, objects }] }`, returning
+  `{ filename, mimeType, pdfBase64 }` as JSON — **not** a binary response. Both Download and Save reuse this
+  one endpoint/response shape (`src/lib/create.js`'s `burnInAttachment`) rather than Download needing a
+  separate binary-fetch code path in `src/lib`.
+- `server/index.js`'s JSON body limit was raised from 1mb to 20mb to fit a real PDF's base64 encoding in
+  both directions (burn-in's response, save's request) — task 5.3 still owns the *authoritative,
+  user-facing* PDF size limit (`MAX_UPLOAD_BYTES`); this is only the outer body-parser ceiling so a
+  legitimate file up to that limit doesn't get a raw, unhelpful 413 first.
+- **Known gaps, tracked, not fixed here:** rotation (Fabric's `angle`, reachable via its default rotate
+  handle once an object is selected) is not reproduced in the burned PDF — every shape burns in at
+  `angle: 0`'s position/size math regardless of any rotation applied on screen. Burned text always uses
+  Helvetica (`StandardFonts.Helvetica`) regardless of what Fabric's Textbox default font would render on
+  screen — text styling/font family was never a configurable requirement (A3/A4), so this is a visual
+  approximation, not a missing feature. `drawTextbox`'s per-line baseline (`box.y + fontSize + index *
+  lineHeight`) is likewise an approximation, not a font-metrics-exact ascent — close enough for the
+  fidelity bar this feature targets, not pixel-exact against Fabric's own text rendering. Curved paths'
+  (Cloud's arcs, which Fabric normalizes to Bezier curves at parse time) raw bounding box is approximated
+  from the naive min/max of all listed path
+  coordinates (anchor *and* control points), not the true tight bezier-curve bounding box Fabric itself
+  computes — close in practice, not pixel-exact.
 
 ## 4. Permissions Model (P1–P5)
 
@@ -434,7 +497,7 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 |---|---|
 | 1 — Viewer (V1–V8) | Done (1.1–1.10): render/scroll/loading/thumbnails, page navigator, zoom in/out, pan, fit-width, confirmed absence of default pdf.js print/search UI, and component tests for `PDFViewer`/`PageNavigator`. |
 | 2 — Annotation tools (A1–A9) | Done (2.1–2.14; 2.15's tests land alongside): Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). Pen/Freeform Highlighter (2.4/2.6), Text (2.5), Text Highlighter (2.7), Rectangle/Ellipse (2.8), Line/Arrow (2.8), Cloud (2.9), the global style control (`StyleControls.tsx`, 2.10), Polygon (2.11), Signature (2.12), select/move/resize (2.13, A5), and the delete-confirmation modal (2.14, A6) are implemented. Signature (`SignatureUploader.tsx`): validates type/size client-side, re-encodes the upload through an offscreen `<canvas>` before placing it (A8/R8's client-side half — the *authoritative* server-side re-check/re-encode is still task 5.3/5.6, not done), and places it via `AnnotationCanvas.jsx`'s `addSignatureImage` at a default width (clamped to the page's own width) on whichever page is currently on screen. Select/move/resize (2.13): see §3.2's A5 note for the Pen/Freeform Highlighter fix this required. Delete (2.14): see §3.2's A6 note. |
-| 3 — Download & Save (D1–D3, S1–S8, F1–F6) | Not started. `pdf-lib` not installed; `applyBurnIn`/`saveAttachment` are placeholder stubs (`server/services/burn-in.js`, `server/services/storage.ts`) tied to an old timestamp/watermark concept, not the annotation model above. |
+| 3 — Download & Save (D1–D3, S1–S8, F1–F6) | Implemented (3.1–3.11): burn-in (`server/services/burn-in.ts` + `annotationGeometry.ts`), save-as-new-attachment (`server/services/storage.ts`'s `saveAttachment`/`downloadAttachmentBytes`), `src/utils/filenameUtils.ts` (F1–F6, shared client/server), `SaveModal.tsx`, and the Download/Save toolbar wiring in `ViewerPage.jsx`/`Toolbar.jsx`. **Blocked on dependency install:** `pdf-lib` could not actually be installed in the session that wrote this — the sandboxed environment's network access to `registry.npmjs.org` timed out, and redirecting to the Autodesk Artifactory mirror was itself blocked by the harness's own policy. `server/services/burn-in.ts` and `storage.ts` are written against `pdf-lib`'s documented API but have never actually been run — `npm run typecheck` currently fails on exactly those two files' `pdf-lib` import (nothing else). **Action needed:** run `npm install pdf-lib` in an environment with real registry access, then re-run `npm run typecheck` and `npm test` (particularly exercise a real Download/Save against a real attachment) before treating burn-in as verified rather than reviewed-but-unrun. The coordinate math those two files depend on (`annotationGeometry.ts`) has no such dependency and *is* unit-tested (`tests/annotationGeometry.test.ts`). |
 | 4 — Permissions & sharing (P1–P5) | Partial: `shares` table and `canRead`/`canWrite`/`canBurnIn` logic exist and are unit-tested (`tests/permissions.test.ts`). Identity is still the `x-user-id` header stub (see §4 gap). `ShareModal`, `NoAccessState`, and the grant endpoint are not built. |
 | 5 — Hardening | Not started (depends on 2–4). |
 
@@ -442,9 +505,17 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 
 - **Auth is a stub, not a security boundary yet** — see §4. Do not treat P1–P5 as satisfied until
   `requirePermission` reads identity from a verified Supabase JWT instead of `x-user-id`.
-- **Burn-in and save services are placeholders** tied to an unrelated timestamp/watermark concept —
-  they need to be rebuilt against the actual annotation JSON model, not extended in place.
-- **No coordinate-drift check exists yet** (Risk R1) — needed before Phase 2/3 can be called done.
+- **`pdf-lib` is not actually installed** — see §8's Phase 3 row. `burn-in.ts`/`storage.ts` are written
+  and reviewed but have never been run against a real PDF. Do not treat burn-in as verified until someone
+  with real registry access runs `npm install pdf-lib` and re-runs the full test suite plus a real
+  Download/Save against a real attachment.
+- **Burn-in does not reproduce Fabric object rotation, uses a fixed Helvetica font for all burned text,
+  and approximates curved paths' raw bounding box from listed path coordinates rather than true bezier
+  extents** — see §3.4's burn-in note. None of these are required by A1–A9; all are documented
+  approximations, not silent bugs.
+- **No coordinate-drift check exists yet** (Risk R1, task 5.4) — needed before Phase 2/3 can be called
+  done; would also be the first place a rotation/curve-approximation gap above would actually show up
+  numerically.
 - **Rectangle/Ellipse/Text Highlighter render offset from the dragged box** (found while implementing
   2.12, pre-existing since 2.7/2.8, not fixed here — out of scope for 2.12's diff): Fabric's object
   default is `originX`/`originY: 'center'` in the installed version (`fabric@7.4.0`), so `left`/`top`

@@ -34,7 +34,18 @@ const TOOLS = [
   { id: 'polygon', label: 'Polygon', testId: 'tool-polygon', Icon: PolygonIcon },
 ];
 
-export default function Toolbar({ attachmentId, activeTool, onToolChange, style, onStyleChange, onSignaturePlace }) {
+export default function Toolbar({
+  attachmentId,
+  activeTool,
+  onToolChange,
+  style,
+  onStyleChange,
+  onSignaturePlace,
+  onDownload,
+  downloading,
+  downloadError,
+  onSaveClick,
+}) {
   return (
     <header className="toolbar" role="toolbar" aria-label="Annotation tools" data-testid="annotation-toolbar">
       <span className="toolbar-attachment">Attachment: {attachmentId}</span>
@@ -55,6 +66,25 @@ export default function Toolbar({ attachmentId, activeTool, onToolChange, style,
         <SignatureUploader onPlace={onSignaturePlace} />
       </div>
       <StyleControls style={style} onStyleChange={onStyleChange} />
+      <div className="toolbar-actions">
+        {downloadError && (
+          <span className="toolbar-action-error" role="alert" data-testid="download-error">
+            {downloadError}
+          </span>
+        )}
+        <button
+          type="button"
+          className="toolbar-action-button"
+          data-testid="download-button"
+          onClick={onDownload}
+          disabled={downloading}
+        >
+          {downloading ? 'Downloading…' : 'Download'}
+        </button>
+        <button type="button" className="toolbar-action-button" data-testid="save-button" onClick={onSaveClick}>
+          Save
+        </button>
+      </div>
     </header>
   );
 }

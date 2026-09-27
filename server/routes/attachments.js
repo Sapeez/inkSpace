@@ -1,8 +1,17 @@
 import { Router } from 'express';
 import { requirePermission, canRead, canWrite } from '../middleware/permissions.js';
 import { saveAttachment, downloadAttachment } from '../services/storage.js';
+import { validateFilename } from '../../src/utils/filenameUtils.js';
 
 const router = Router();
+
+// `ownerId` (from the `x-user-id` stub) flows straight into a Supabase
+// Storage object key in `saveAttachment` — validating it's UUID-shaped here
+// (matching the `attachments.owner_id uuid` column it's also inserted as)
+// keeps an unvalidated client-supplied header value from reaching a storage
+// key at all, rather than relying only on the DB insert's constraint to
+// reject it after the fact.
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 router.get('/:id', requirePermission(canRead), async (req, res, next) => {
   try {
@@ -13,12 +22,29 @@ router.get('/:id', requirePermission(canRead), async (req, res, next) => {
   }
 });
 
+// Task 3.3 (Save as new attachment): always creates a *new* row — see
+// `saveAttachment`'s comment. `pdfBase64` must already be burned-in (task
+// 3.2's output); this route never burns in annotations itself. Filename is
+// re-validated here (F4-F6) since the client-side check in SaveModal.tsx is
+// UX only, not authoritative (agents/skills/backend-patterns.md "Upload &
+// burn-in").
 router.post('/', async (req, res, next) => {
   try {
-    if (!req.headers['x-user-id']) {
+    const ownerId = req.headers['x-user-id'];
+    if (!ownerId || typeof ownerId !== 'string' || !UUID_PATTERN.test(ownerId)) {
       return res.status(401).json({ message: 'Authentication required' });
     }
-    const saved = await saveAttachment(req.body);
+
+    const { filename, pdfBase64 } = req.body;
+    if (typeof filename !== 'string' || typeof pdfBase64 !== 'string') {
+      return res.status(400).json({ message: 'filename and pdfBase64 are required' });
+    }
+    const filenameError = validateFilename(filename);
+    if (filenameError) {
+      return res.status(400).json({ message: filenameError });
+    }
+
+    const saved = await saveAttachment({ ownerId, filename, pdfBase64 });
     res.status(201).json(saved);
   } catch (err) {
     next(err);

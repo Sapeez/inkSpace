@@ -21,3 +21,14 @@ export function createPermission(attachmentId, payload) {
     body: JSON.stringify(payload),
   });
 }
+
+// Task 3.2/3.3 (Download & Save): burns the given per-page annotation JSON
+// into a copy of the original PDF and returns it as base64 JSON
+// (`{ filename, mimeType, pdfBase64 }`) — shared by Download (decodes it to
+// a Blob directly) and Save (forwards `pdfBase64` on to `createAttachment`).
+export function burnInAttachment(attachmentId, pages) {
+  return request(`/api/burn-in/${encodeURIComponent(attachmentId)}`, {
+    method: 'POST',
+    body: JSON.stringify({ pages }),
+  });
+}

@@ -8,7 +8,13 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3001;
 
 app.use(cors());
-app.use(express.json({ limit: '1mb' }));
+// Burn-in (task 3.2) and save (task 3.3) both carry a full PDF as base64 JSON
+// (~33% larger than the raw file) in each direction — 1mb was fine for the
+// old timestamp/watermark-only payloads but is too small for a real document.
+// Task 5.3 still owns the authoritative, user-facing PDF size limit
+// (`MAX_UPLOAD_BYTES`); this is just the outer body-parser ceiling so a
+// legitimate upload up to that limit doesn't get a raw 413 first.
+app.use(express.json({ limit: '20mb' }));
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });

@@ -24,12 +24,18 @@ interface UsePdfDocumentResult {
   pdfDoc: PDFDocumentProxy | null;
   loading: boolean;
   error: string | null;
+  // D3/S2: Download and the Save modal's filename pre-fill both need the
+  // original attachment's filename — surfaced here since this hook is
+  // already the one place that fetches that metadata, rather than having
+  // ViewerPage.jsx re-fetch it separately.
+  attachment: AttachmentDownload | null;
 }
 
 export function usePdfDocument(attachmentId: string): UsePdfDocumentResult {
   const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [attachment, setAttachment] = useState<AttachmentDownload | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,16 +44,18 @@ export function usePdfDocument(attachmentId: string): UsePdfDocumentResult {
     setLoading(true);
     setError(null);
     setPdfDoc(null);
+    setAttachment(null);
 
     async function load() {
       try {
-        const attachment: unknown = await fetchAttachment(attachmentId);
-        if (!isAttachmentDownload(attachment)) {
+        const fetched: unknown = await fetchAttachment(attachmentId);
+        if (!isAttachmentDownload(fetched)) {
           throw new Error('Malformed attachment response');
         }
         if (cancelled) return;
+        setAttachment(fetched);
 
-        doc = await getDocument(attachment.url).promise;
+        doc = await getDocument(fetched.url).promise;
         if (cancelled) {
           void doc.destroy();
           return;
@@ -70,5 +78,5 @@ export function usePdfDocument(attachmentId: string): UsePdfDocumentResult {
     };
   }, [attachmentId]);
 
-  return { pdfDoc, loading, error };
+  return { pdfDoc, loading, error, attachment };
 }

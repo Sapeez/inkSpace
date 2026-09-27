@@ -812,6 +812,41 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
         return true;
       },
 
+      // Task 3.x (burn-in/download/save): collects every page's annotation
+      // objects, in this canvas's own PDF-point coordinate space (Risk R1 —
+      // no conversion needed, the server burns them in at face value). Live
+      // canvases (currently on screen) are read fresh via toJSON() rather
+      // than from `savedStateRef`, since a page's savedStateRef entry is only
+      // refreshed on teardown (handlePagesReset/a page-render replacing it) —
+      // reading it here instead would miss an edit made since the last
+      // zoom/pan. Pages that have been visited before but aren't currently
+      // mounted (savedStateRef only) are included from there; a page never
+      // visited has no entry either way, which is correct — nothing could
+      // have been drawn on it. Pages with zero objects are omitted so the
+      // server doesn't need to special-case an empty `objects` array.
+      getAnnotationsForBurnIn() {
+        const pages = [];
+        const seenPages = new Set();
+
+        canvasesRef.current.forEach((canvas, pageNumber) => {
+          cancelPendingGestures(canvas);
+          const json = canvas.toJSON(['annotationTool']);
+          seenPages.add(pageNumber);
+          if (json.objects && json.objects.length > 0) {
+            pages.push({ pageNumber, objects: json.objects });
+          }
+        });
+
+        savedStateRef.current.forEach((json, pageNumber) => {
+          if (seenPages.has(pageNumber)) return;
+          if (json.objects && json.objects.length > 0) {
+            pages.push({ pageNumber, objects: json.objects });
+          }
+        });
+
+        return pages.sort((a, b) => a.pageNumber - b.pageNumber);
+      },
+
       handlePagesReset() {
         canvasesRef.current.forEach((canvas, pageNumber) => {
           // Must run before toJSON() — see cancelPendingGestures's comment.
