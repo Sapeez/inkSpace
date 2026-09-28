@@ -64,7 +64,7 @@ test('fitWidth ignores a stale result if the scale changed while it was still co
   );
 
   await waitFor(() => {
-    assert.ok(!screen.getByTestId(TEST_IDS.FIT_WIDTH_BUTTON).hasAttribute('disabled'));
+    assert.ok(!screen.getByTestId(TEST_IDS.FIT_WIDTH_BUTTON).hasAttribute('disabled'), 'fit-width button still disabled');
   });
 
   const viewerEl = container.querySelector(`[data-testid="${TEST_IDS.PDF_VIEWER}"]`) as HTMLElement;
@@ -86,4 +86,100 @@ test('fitWidth ignores a stale result if the scale changed while it was still co
       'fitWidth resolving late must not overwrite the zoom-in click that happened while it was pending',
     );
   });
+});
+
+// 5.2/Risk R2: a controllable stand-in for the real IntersectionObserver
+// (jsdom has no layout, so it can't compute real intersections) — lets a test
+// simulate "this page just scrolled into the buffered viewport" by calling
+// `.trigger()` directly, exercising PDFViewer's own virtualization logic
+// (which page render calls it makes, and when) independent of real browser
+// geometry.
+function getGlobalIntersectionObserver(): unknown {
+  return Reflect.get(globalThis, 'IntersectionObserver');
+}
+
+function setGlobalIntersectionObserver(value: unknown): void {
+  Reflect.set(globalThis, 'IntersectionObserver', value);
+}
+
+function makeFakeIntersectionObserver(callback: IntersectionObserverCallback) {
+  const observed = new Set<Element>();
+  return {
+    observe(target: Element) {
+      observed.add(target);
+    },
+    unobserve(target: Element) {
+      observed.delete(target);
+    },
+    disconnect() {
+      observed.clear();
+    },
+    trigger(target: Element, isIntersecting: boolean) {
+      callback([{ target, isIntersecting } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+    },
+  };
+}
+
+test('5.2: only the target page renders eagerly; the rest render lazily as they intersect the buffered viewport', async () => {
+  const originalIntersectionObserver = getGlobalIntersectionObserver();
+  const instances: ReturnType<typeof makeFakeIntersectionObserver>[] = [];
+  setGlobalIntersectionObserver(function (this: unknown, callback: IntersectionObserverCallback) {
+    const instance = makeFakeIntersectionObserver(callback);
+    instances.push(instance);
+    return instance;
+  });
+
+  try {
+    const renderedPages: number[] = [];
+    const fakePage = (pageNumber: number) => ({
+      getViewport: ({ scale = 1 }: { scale?: number } = {}) => ({ width: 600 * scale, height: 800 * scale }),
+      render: () => {
+        renderedPages.push(pageNumber);
+        return { promise: Promise.resolve(), cancel: () => {} };
+      },
+    });
+
+    const fakePdfDoc = {
+      numPages: 3,
+      getPage: (pageNumber: number) => Promise.resolve(fakePage(pageNumber)),
+    };
+
+    const onPageRendered = (pageNumber: number) => {
+      // no-op — this test only cares about pdf.js's own `render()` calls.
+      void pageNumber;
+    };
+
+    render(
+      <PDFViewer
+        pdfDoc={fakePdfDoc as unknown as PDFDocumentProxy}
+        loading={false}
+        error={null}
+        onPageRendered={onPageRendered}
+      />,
+    );
+
+    await waitFor(() => {
+      assert.equal(screen.queryByTestId(TEST_IDS.LOADING_INDICATOR), null, 'still loading');
+    });
+
+    assert.deepEqual(renderedPages, [1], 'only page 1 (the initial target) should render up front');
+
+    const observer = instances.at(-1)!;
+    const page2Wrapper = document.getElementById('pdf-page-2')!;
+    assert.ok(page2Wrapper, 'every page gets a placeholder wrapper up front, even before it renders');
+    assert.equal(page2Wrapper.querySelector('canvas'), null, 'page 2 has no canvas yet — it has not rendered');
+
+    observer.trigger(page2Wrapper, true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepEqual(renderedPages, [1, 2], 'page 2 renders once the observer reports it intersecting');
+    assert.ok(document.getElementById('pdf-page-3'), 'page 3 also has a placeholder, for correct scroll height');
+    assert.equal(
+      document.getElementById('pdf-page-3')!.querySelector('canvas'),
+      null,
+      'page 3 still has not rendered — it never intersected',
+    );
+  } finally {
+    setGlobalIntersectionObserver(originalIntersectionObserver);
+  }
 });

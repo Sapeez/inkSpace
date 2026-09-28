@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requirePermission, canRead, canWrite, getAttachmentRole } from '../middleware/permissions.js';
 import { saveAttachment, downloadAttachment } from '../services/storage.js';
 import { validateFilename } from '../../src/utils/filenameUtils.js';
+import { MAX_UPLOAD_BYTES, formatMegabytes } from '../../src/utils/uploadLimits.js';
 
 const router = Router();
 
@@ -48,6 +49,13 @@ router.post('/', async (req, res, next) => {
     const filenameError = validateFilename(filename);
     if (filenameError) {
       return res.status(400).json({ message: filenameError });
+    }
+    // Task 5.3: authoritative PDF size limit — checked against the decoded
+    // byte length (base64's own ~33% overhead would otherwise let a file
+    // over the real limit through), before ever calling saveAttachment (no
+    // point uploading to Storage only to reject it after).
+    if (Buffer.byteLength(pdfBase64, 'base64') > MAX_UPLOAD_BYTES) {
+      return res.status(400).json({ message: `File exceeds the ${formatMegabytes(MAX_UPLOAD_BYTES)} limit` });
     }
 
     const saved = await saveAttachment({ ownerId, filename, pdfBase64 });

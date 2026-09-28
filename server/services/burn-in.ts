@@ -10,6 +10,7 @@ import {
   minOf,
   numericPointsIn,
 } from './annotationGeometry.js';
+import { decodeValidatedSignatureImage } from './signatureImageValidation.js';
 import type { AnnotationObjectJson, BurnInParams, BurnInResult } from './burn-in-types.js';
 
 export type { AnnotationObjectJson, BurnInPage, BurnInParams, BurnInResult } from './burn-in-types.js';
@@ -184,7 +185,11 @@ function drawTextbox(page: PDFPage, pageHeight: number, object: AnnotationObject
 // Signature images (SignatureUploader.tsx) are always re-encoded through a
 // `<canvas>.toDataURL()` before being placed (no args → PNG), so `src` is
 // always a `data:image/png;base64,...` URL regardless of the originally
-// uploaded file's type — one embed path covers every signature.
+// uploaded file's type — one embed path covers every signature. Validation
+// (task 5.3/5.6, R8: reject an oversized or disguised image before it's ever
+// decoded) lives in `signatureImageValidation.ts`, dependency-free so it's
+// unit-testable independent of whether `pdf-lib` happens to be installed —
+// see that file's own comment.
 async function drawImageShape(
   pdfDoc: PDFDocument,
   page: PDFPage,
@@ -192,8 +197,7 @@ async function drawImageShape(
   object: AnnotationObjectJson,
 ): Promise<void> {
   if (!object.src) return;
-  const base64 = object.src.slice(object.src.indexOf(',') + 1);
-  const bytes = Buffer.from(base64, 'base64');
+  const bytes = decodeValidatedSignatureImage(object.src);
   const image = await pdfDoc.embedPng(bytes);
   const box = boundingBoxTopLeft(object);
   page.drawImage(image, {

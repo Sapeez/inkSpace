@@ -7,6 +7,13 @@ const MIN_SCALE = 0.5;
 const MAX_SCALE = 3;
 const SCALE_STEP = 0.25;
 
+// Risk R2/task 5.2: how far past the visible viewport (in CSS pixels, along
+// the scroll axis) a page is still eagerly rasterized — large enough that a
+// normal scroll or a fit-width-sized page's worth of momentum doesn't
+// outrun rendering and show a blank page, small enough that a huge document
+// still only renders a handful of pages up front instead of all of them.
+const VIEWPORT_RENDER_BUFFER_PX = 1000;
+
 interface PDFViewerProps {
   pdfDoc: PDFDocumentProxy | null;
   loading: boolean;
@@ -78,6 +85,7 @@ export default function PDFViewer({
   useEffect(() => {
     let cancelled = false;
     const renderTasks: RenderTask[] = [];
+    let observer: IntersectionObserver | null = null;
     const isNewDocument = prevPdfDocRef.current !== pdfDoc;
     const effectiveScale = isNewDocument ? 1 : scale;
     const previousPage = isNewDocument ? null : lastVisiblePageRef.current;
@@ -96,8 +104,44 @@ export default function PDFViewer({
     }
     const doc = pdfDoc;
 
+    interface PageEntry {
+      pageNumber: number;
+      page: Awaited<ReturnType<typeof doc.getPage>>;
+      viewport: ReturnType<Awaited<ReturnType<typeof doc.getPage>>['getViewport']>;
+      pageWrapper: HTMLDivElement;
+      rendered: boolean;
+    }
+
+    // Risk R2/task 5.2: rasterizing a page (`page.render`) is the expensive
+    // part — building this placeholder is not (`getPage` parses the page
+    // dict, not its content stream), so every page's wrapper is created
+    // up front, sized to its real viewport, keeping the container's total
+    // scroll height (and therefore thumbnail/page-jump navigation, which
+    // scrolls straight to a `pdf-page-<n>` id that must already exist) exact
+    // from the start — only the actual `page.render()` call is deferred.
+    async function renderOnePage(entry: PageEntry) {
+      if (entry.rendered || cancelled) return;
+      entry.rendered = true;
+      observer?.unobserve(entry.pageWrapper);
+
+      const canvas = document.createElement('canvas');
+      canvas.className = 'pdf-viewer-canvas';
+      canvas.width = entry.viewport.width;
+      canvas.height = entry.viewport.height;
+      entry.pageWrapper.appendChild(canvas);
+
+      const renderTask = entry.page.render({ canvas, viewport: entry.viewport });
+      renderTasks.push(renderTask);
+      await renderTask.promise;
+      if (cancelled) return;
+
+      latestOnPageRenderedRef.current?.(entry.pageNumber, entry.pageWrapper, canvas);
+    }
+
     async function renderPages() {
       try {
+        const pageEntries: PageEntry[] = [];
+
         for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
           if (cancelled) return;
 
@@ -109,20 +153,50 @@ export default function PDFViewer({
           const pageWrapper = document.createElement('div');
           pageWrapper.className = 'pdf-viewer-page';
           pageWrapper.id = `pdf-page-${pageNumber}`;
-
-          const canvas = document.createElement('canvas');
-          canvas.className = 'pdf-viewer-canvas';
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          pageWrapper.appendChild(canvas);
+          pageWrapper.style.width = `${viewport.width}px`;
+          pageWrapper.style.height = `${viewport.height}px`;
           pagesContainerRef.current?.appendChild(pageWrapper);
 
-          const renderTask = page.render({ canvas, viewport });
-          renderTasks.push(renderTask);
-          await renderTask.promise;
-          if (cancelled) return;
+          pageEntries.push({ pageNumber, page, viewport, pageWrapper, rendered: false });
+        }
+        if (cancelled) return;
 
-          latestOnPageRenderedRef.current?.(pageNumber, pageWrapper, canvas);
+        // Every page's placeholder now exists — this is where progressive
+        // rendering (5.2) takes over from the old "render every page inline,
+        // in this same loop" approach: only the page the user is about to
+        // land on renders synchronously (so the loading indicator can clear
+        // deterministically); every other page renders lazily, on demand,
+        // via the observer below, so a large document's first page appears
+        // without waiting for the whole document to rasterize.
+        const initialTargetPage = previousPage ?? 1;
+        const initialEntry = pageEntries.find((entry) => entry.pageNumber === initialTargetPage) ?? pageEntries[0];
+        if (initialEntry) await renderOnePage(initialEntry);
+        if (cancelled) return;
+
+        // Environments without IntersectionObserver (none of this repo's
+        // jsdom-based component tests define it — see PDFViewer.test.tsx)
+        // fall back to rendering every remaining page eagerly, same as
+        // before 5.2, rather than silently never rendering the rest of the
+        // document.
+        if (typeof IntersectionObserver === 'undefined') {
+          for (const entry of pageEntries) {
+            if (cancelled) return;
+            await renderOnePage(entry);
+          }
+        } else {
+          observer = new IntersectionObserver(
+            (entries) => {
+              entries.forEach((intersectionEntry) => {
+                if (!intersectionEntry.isIntersecting) return;
+                const entry = pageEntries.find((candidate) => candidate.pageWrapper === intersectionEntry.target);
+                if (entry) renderOnePage(entry);
+              });
+            },
+            { root: viewerRef.current, rootMargin: `${VIEWPORT_RENDER_BUFFER_PX}px` },
+          );
+          pageEntries.forEach((entry) => {
+            if (!entry.rendered) observer!.observe(entry.pageWrapper);
+          });
         }
 
         if (!cancelled) {
@@ -146,6 +220,7 @@ export default function PDFViewer({
 
     return () => {
       cancelled = true;
+      observer?.disconnect();
       renderTasks.forEach((task) => task.cancel());
       latestOnPagesResetRef.current?.();
       const container = viewerRef.current;

@@ -42,6 +42,7 @@ export const TEST_IDS = {
   SUCCESS_TOAST: 'success-toast',
   ERROR_TOAST: 'error-toast',
   FILENAME_VALIDATION_ERROR: 'filename-validation-error',
+  SAVE_MODAL_SIZE_ERROR: 'save-modal-size-error',
 
   // ── Delete confirmation modal (PRD A6) ────────────────────────────────────
   DELETE_CONFIRM_MODAL: 'delete-confirm-modal',

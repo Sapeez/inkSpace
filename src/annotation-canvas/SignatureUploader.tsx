@@ -1,14 +1,15 @@
 import { useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { SignatureIcon } from '../toolbar/toolbarIcons';
+import { MAX_SIGNATURE_IMAGE_BYTES, ALLOWED_SIGNATURE_IMAGE_TYPES } from '../utils/signatureImageLimits';
 
 // A8/R8: this is the *instant-feedback* half of the check — client-side
-// only, and not authoritative. The server re-checks size on the way in and
-// re-encodes whatever it stores (tasks 5.3/5.6), so a malicious client that
-// skips this component entirely still can't persist an oversized or
-// disguised file.
-export const MAX_SIGNATURE_IMAGE_BYTES = 5 * 1024 * 1024;
-export const ALLOWED_SIGNATURE_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+// only, and not authoritative. The server re-checks size and data format on
+// the way in, in `burn-in.ts`'s `drawImageShape` (tasks 5.3/5.6), against
+// the exact same constants (re-exported here, not redefined, so the two
+// can't drift) — so a malicious client that skips this component entirely
+// still can't persist an oversized or disguised file.
+export { MAX_SIGNATURE_IMAGE_BYTES, ALLOWED_SIGNATURE_IMAGE_TYPES };
 
 export function validateSignatureFile(file: File): string | null {
   if (!ALLOWED_SIGNATURE_IMAGE_TYPES.includes(file.type)) {

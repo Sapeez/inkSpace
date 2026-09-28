@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { generateDefaultFilename, validateFilename } from '../utils/filenameUtils.js';
+import { MAX_UPLOAD_BYTES, formatMegabytes, estimateBase64ByteLength } from '../utils/uploadLimits.js';
 import { burnInAttachment, createAttachment } from '../lib/index.js';
 
 export interface AnnotationBurnInPage {
@@ -27,6 +28,11 @@ export default function SaveModal({ open, attachmentId, originalFilename, onClos
   const [filenameError, setFilenameError] = useState<string | null>(null);
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  // Task 5.3: set only when the burned PDF exceeds MAX_UPLOAD_BYTES — a
+  // distinct, specific line (like filenameError above) so the limit is
+  // surfaced clearly, without changing S6's exact-text failure toast, which
+  // still fires alongside it for every save failure including this one.
+  const [sizeError, setSizeError] = useState<string | null>(null);
 
   // S2: pre-fill (per F1-F3) every time the modal opens for this attachment —
   // this component instance persists across opens/closes, so this can't be
@@ -37,6 +43,7 @@ export default function SaveModal({ open, attachmentId, originalFilename, onClos
     setFilenameError(null);
     setStatus('idle');
     setToastMessage(null);
+    setSizeError(null);
   }, [open, originalFilename]);
 
   if (!open) return null;
@@ -69,9 +76,23 @@ export default function SaveModal({ open, attachmentId, originalFilename, onClos
 
     setStatus('saving');
     setToastMessage(null);
+    setSizeError(null);
     try {
       const pages = getAnnotations();
       const burned = await burnInAttachment(attachmentId, pages);
+
+      // Instant-feedback half of the size check (5.3) — the authoritative
+      // check is server-side, in attachments.js's POST / — but failing here
+      // avoids an upload attempt that the server would reject anyway, and
+      // lets this surface a specific, clear reason rather than the generic
+      // failure toast alone.
+      if (estimateBase64ByteLength(burned.pdfBase64) > MAX_UPLOAD_BYTES) {
+        setSizeError(`File exceeds the ${formatMegabytes(MAX_UPLOAD_BYTES)} limit — reduce the annotations and try again.`);
+        setStatus('error');
+        setToastMessage(`Couldn't save ${attemptedFilename}.`);
+        return;
+      }
+
       await createAttachment({ filename: attemptedFilename, pdfBase64: burned.pdfBase64 });
       setStatus('success');
       setToastMessage(`${attemptedFilename} saved successfully to workspace.`);
@@ -120,6 +141,11 @@ export default function SaveModal({ open, attachmentId, originalFilename, onClos
         {filenameError && (
           <span className="save-modal-error" role="alert" data-testid="filename-validation-error">
             {filenameError}
+          </span>
+        )}
+        {sizeError && (
+          <span className="save-modal-error" role="alert" data-testid="save-modal-size-error">
+            {sizeError}
           </span>
         )}
 

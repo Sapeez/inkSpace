@@ -574,10 +574,10 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 | Phase | Status |
 |---|---|
 | 1 — Viewer (V1–V8) | Done (1.1–1.10): render/scroll/loading/thumbnails, page navigator, zoom in/out, pan, fit-width, confirmed absence of default pdf.js print/search UI, and component tests for `PDFViewer`/`PageNavigator`. |
-| 2 — Annotation tools (A1–A9) | Done (2.1–2.14; 2.15's tests land alongside): Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). Pen/Freeform Highlighter (2.4/2.6), Text (2.5), Text Highlighter (2.7), Rectangle/Ellipse (2.8), Line/Arrow (2.8), Cloud (2.9), the global style control (`StyleControls.tsx`, 2.10), Polygon (2.11), Signature (2.12), select/move/resize (2.13, A5), and the delete-confirmation modal (2.14, A6) are implemented. Signature (`SignatureUploader.tsx`): validates type/size client-side, re-encodes the upload through an offscreen `<canvas>` before placing it (A8/R8's client-side half — the *authoritative* server-side re-check/re-encode is still task 5.3/5.6, not done), and places it via `AnnotationCanvas.jsx`'s `addSignatureImage` at a default width (clamped to the page's own width) on whichever page is currently on screen. Select/move/resize (2.13): see §3.2's A5 note for the Pen/Freeform Highlighter fix this required. Delete (2.14): see §3.2's A6 note. |
+| 2 — Annotation tools (A1–A9) | Done (2.1–2.14; 2.15's tests land alongside): Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). Pen/Freeform Highlighter (2.4/2.6), Text (2.5), Text Highlighter (2.7), Rectangle/Ellipse (2.8), Line/Arrow (2.8), Cloud (2.9), the global style control (`StyleControls.tsx`, 2.10), Polygon (2.11), Signature (2.12), select/move/resize (2.13, A5), and the delete-confirmation modal (2.14, A6) are implemented. Signature (`SignatureUploader.tsx`): validates type/size client-side, re-encodes the upload through an offscreen `<canvas>` before placing it (A8/R8's client-side half — the *authoritative* server-side re-check/re-encode is task 5.3/5.6, done: see §10), and places it via `AnnotationCanvas.jsx`'s `addSignatureImage` at a default width (clamped to the page's own width) on whichever page is currently on screen. Select/move/resize (2.13): see §3.2's A5 note for the Pen/Freeform Highlighter fix this required. Delete (2.14): see §3.2's A6 note. |
 | 3 — Download & Save (D1–D3, S1–S8, F1–F6) | Implemented (3.1–3.11): burn-in (`server/services/burn-in.ts` + `annotationGeometry.ts`), save-as-new-attachment (`server/services/storage.ts`'s `saveAttachment`/`downloadAttachmentBytes`), `src/utils/filenameUtils.ts` (F1–F6, shared client/server), `SaveModal.tsx`, and the Download/Save toolbar wiring in `ViewerPage.jsx`/`Toolbar.jsx`. **Blocked on dependency install:** `pdf-lib` could not actually be installed in the session that wrote this — the sandboxed environment's network access to `registry.npmjs.org` timed out, and redirecting to the Autodesk Artifactory mirror was itself blocked by the harness's own policy. `server/services/burn-in.ts` and `storage.ts` are written against `pdf-lib`'s documented API but have never actually been run — `npm run typecheck` currently fails on exactly those two files' `pdf-lib` import (nothing else). **Action needed:** run `npm install pdf-lib` in an environment with real registry access, then re-run `npm run typecheck` and `npm test` (particularly exercise a real Download/Save against a real attachment) before treating burn-in as verified rather than reviewed-but-unrun. The coordinate math those two files depend on (`annotationGeometry.ts`) has no such dependency and *is* unit-tested (`tests/annotationGeometry.test.ts`). |
 | 4 — Permissions & sharing (P1–P5) | Implemented (4.1–4.11, see §4's "Implementation" note): `shares` table (4.1, pre-existing); `isOwner`/`getAttachmentRole` added to `permissions.ts`; grant/list/revoke endpoints (`server/routes/shares.ts`, 4.4); `ShareModal.tsx` (4.6); `Toolbar.jsx` role-gating + `NotesPanel.tsx` (4.7); `NoAccessState.tsx` wired via `usePdfDocument.ts`'s `accessDenied` (4.8/4.9); unit tests (`tests/permissions.test.ts`, `tests/shares.test.ts`) and real-HTTP 403/401 tests (`tests/permissions.api.test.ts`, 4.10/4.11) — the burn-in/attachments half of that last file self-skips pending the `pdf-lib` install (see Phase 3's row and §9); the shares-endpoint half runs for real against the live Supabase project. Identity is still the `x-user-id` header stub, now with a client-side half too (see §4 gap notes) — not yet a security boundary. `npm run supabase:migrate` (4.2) itself wasn't run this session — it's a production-deploy-classified command this environment's auto-mode blocked; the migration it would apply was already applied in an earlier session (confirmed indirectly: `tests/permissions.test.ts` already passes reads/writes against the real `shares` table). Playwright-level coverage of P1–P5 (`agents/rules/integration-tests.md` §8/§15) doesn't exist yet — `@playwright/test` and the `tests/fixtures/testFixtures`/`BasePage` scaffolding aren't installed in this repo, for the same npm-registry-access reason as the `pdf-lib` gap; `tests/consts/inkSpace.ts`/`routes.ts` were extended with the new `SHARE_*`/`NOTES_PANEL_*`/`TOOLBAR` test ids and `Routes.Shares`/`ShareById` (replacing the stale `Permissions`/`PermissionById`/`AttachmentDownload` entries) so that suite can be written directly against this implementation once the tooling exists. |
-| 5 — Hardening | Not started (depends on 2–4). |
+| 5 — Hardening | In progress (5.1–5.6 done; 5.7 pending — see §10). |
 
 ## 9. Known Gaps to Track Until Closed
 
@@ -609,9 +609,17 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   and approximates curved paths' raw bounding box from listed path coordinates rather than true bezier
   extents** — see §3.4's burn-in note. None of these are required by A1–A9; all are documented
   approximations, not silent bugs.
-- **No coordinate-drift check exists yet** (Risk R1, task 5.4) — needed before Phase 2/3 can be called
-  done; would also be the first place a rotation/curve-approximation gap above would actually show up
-  numerically.
+- **Coordinate-drift check (task 5.4, Risk R1): done at the coordinate-math level, not a real pdf-lib
+  burn-in** — `tests/AnnotationCanvas.test.tsx`'s "a burned annotation's page-space position matches at
+  fit-width, 100%, and 200% zoom" places one Rect, then re-attaches the same page's Fabric canvas at three
+  different on-screen pixel sizes (0.8x/1x/2x, via `handlePageRendered`'s `pdfCanvasEl` argument — the same
+  signal a real zoom/fit-width click sends), running each capture's serialized object through
+  `annotationGeometry.ts`'s `boundingBoxTopLeft`/`flipY` (the actual page-space math `burn-in.ts`'s
+  `drawRect` uses) and asserting all three agree exactly. This is possible without `pdf-lib` installed
+  because that coordinate math is dependency-free (§9, next item) — it does not exercise `pdf-lib`'s own
+  `embedPng`/`drawSvgPath`/font-embedding calls, so it would not catch a bug specific to those. Re-verify
+  end-to-end (a real Download against a real multi-annotation attachment at multiple zoom levels) once
+  `pdf-lib` is installed, per the next Known Gap.
 - **Rectangle/Ellipse/Text Highlighter render offset from the dragged box** (found while implementing
   2.12, pre-existing since 2.7/2.8, not fixed here — out of scope for 2.12's diff): Fabric's object
   default is `originX`/`originY: 'center'` in the installed version (`fabric@7.4.0`), so `left`/`top`
@@ -634,3 +642,68 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   Since 2.2, this also disposes and rebuilds *every* page's Fabric annotation canvas
   (`toJSON`/`loadFromJSON` round-trip) on the same schedule — 5.2 needs to cover both costs, not just
   pdf.js's own re-decode.
+
+## 10. Hardening (task 5.0)
+
+- **5.1 (out-of-scope audit):** swept `src/`/`server/` for every §6 item (print, search, undo/redo, page
+  rotate/reorder, OCR, form-fill, stamps/callouts/cover pages/redaction, a notes tool for editors, locally
+  persisted style prefs) — none exist in the shipped UI or API; the only `rotate`/`reorder` hits are code
+  comments about Fabric's own unrelated object-rotate handle and toolbar *button* ordering, not a page-level
+  feature. Pinned with a regression test (`tests/Toolbar.test.tsx`, "the edit toolbar exposes exactly the 11
+  required tools, in A1's required order, and nothing out-of-scope") asserting the toolbar's exact button
+  set/order and that only one global style control exists.
+- **5.3/5.6 (size limits + server-side signature re-encoding):** signature images were already re-encoded
+  client-side (`SignatureUploader.tsx`'s offscreen `<canvas>.toDataURL()`, task 2.12) but had no
+  server-side re-check — a caller hitting the burn-in endpoint directly could send an arbitrary `image`
+  object. `server/services/signatureImageValidation.ts` (new, dependency-free — same reasoning as
+  `annotationGeometry.ts`'s own split from `pdf-lib`, so it's unit-testable without `pdf-lib` installed)
+  now rejects, before any bytes are ever decoded: anything not exactly a `data:image/png;base64,...` URL
+  (the one wire format this app's own signature flow ever produces — R8's "no disguised file" guarantee),
+  and anything over `MAX_SIGNATURE_IMAGE_BYTES`. That constant now lives in one place,
+  `src/utils/signatureImageLimits.ts`, imported by both `SignatureUploader.tsx` (client, re-exported for
+  backward compatibility with its existing test imports) and `burn-in.ts`'s `drawImageShape` (server) —
+  can't drift apart by construction. Separately, `src/utils/uploadLimits.ts` adds `MAX_UPLOAD_BYTES` (14MB —
+  base64-encodes to ~19.5MB, leaving real headroom under `server/index.js`'s 20mb body-parser ceiling; an
+  earlier 15MB value encoded to *exactly* 20mb with zero headroom, found in code review)
+  for the burned PDF itself — this app has no "pick a PDF off disk" upload flow, so the one place a new
+  PDF's bytes enter storage is Save-as-new-attachment; `server/routes/attachments.js`'s `POST /` now
+  rejects an oversized `pdfBase64` with 400 before ever calling `saveAttachment` (authoritative), and
+  `SaveModal.tsx` pre-checks the same limit client-side right after burn-in returns, before calling Save,
+  so an oversized result never round-trips to the server at all — shown via a dedicated
+  `save-modal-size-error` message alongside (not instead of) S6's exact-text failure toast. Tests:
+  `tests/signatureImageValidation.test.ts`, `tests/uploadLimits.test.ts`, and a new case in
+  `tests/SaveModal.test.tsx`.
+- **5.5 (permission sweep):** re-reviewed every route in `attachments.js`/`burn-in.js`/`shares.ts` against
+  `permissions.ts`'s gates — all mutating routes are already correctly gated (`canWrite`/`canBurnIn`/
+  `isOwner`), and `isOwner` fails closed (403) rather than deferring to a 404 the shares routes don't have
+  their own follow-up lookup for. The one non-gated mutating route, `POST /api/attachments`, is the
+  documented exception (creates a new row always owned by the caller — see §3.4). Pinned with
+  `tests/routePermissionAudit.test.ts`, a static sweep over the route files' source (not an import — those
+  files pull in `pdf-lib` transitively, not installed in this sandbox) asserting every non-GET route
+  handler is gated by `requirePermission`, so a future route added without it fails this test rather than
+  shipping an IDOR silently.
+- **5.2 (virtualized/progressive rendering):** `PDFViewer.tsx`'s render effect now builds every page's
+  placeholder wrapper up front (cheap — page metadata only, sized to the real viewport so scroll height,
+  thumbnail nav, and page-jump all still work immediately), eagerly rasterizes only the page the user is
+  actually landing on (so the loading indicator clears deterministically), then rasterizes every other page
+  lazily via `IntersectionObserver` (`VIEWPORT_RENDER_BUFFER_PX = 1000`px rootMargin) as it scrolls into the
+  buffered viewport — falling back to the old eager-render-everything behavior if `IntersectionObserver`
+  isn't available (this repo's jsdom-based component tests don't polyfill it). `AnnotationCanvas.jsx`
+  needed no changes at all: its `handlePageRendered`/`handlePagesReset` contract was already per-page and
+  already tolerant of pages rendering at different times, since that's exactly how it always received them
+  (just back-to-back before, staggered now). Test: `tests/PDFViewer.test.tsx`'s new case installs a fake
+  `IntersectionObserver` and asserts only the target page renders up front, and that triggering a fake
+  intersection for another page's wrapper is what makes *it* render — the third page never renders since it
+  never intersects, proving the lazy path actually defers work rather than just looking like it does.
+  **Found and fixed in this same diff, unrelated to virtualization itself:** a pre-existing `assert.ok(...)`
+  call (no message) inside `PDFViewer.test.tsx`'s own "fitWidth ignores a stale result" test's `waitFor`
+  poll turned a transient, expected mid-poll failure into a ~8.7-second stall once this file's size crossed
+  some threshold — Node's `assert.ok` with no custom message re-parses the *whole test file* via a bundled
+  acorn parser (`node:internal/assert/utils`'s `parseCode`) to build a nicer default failure message, and
+  that parse pathologically slows down on this file's TS/TSX syntax once it's this large (confirmed via
+  `node --cpu-prof`: >95% of the stall's CPU time was inside acorn's tokenizer/error-recovery). Adding an
+  explicit message avoids the diagnostic path entirely; this is a general Node/`node --test` footgun for any
+  `waitFor(() => assert.ok(...))` with no message, not specific to this file — worth keeping in mind if
+  another test file's `waitFor` polling assertions start mysteriously ballooning in duration.
+- **5.4 (coordinate-drift check):** see §9's Known Gaps entry for detail — done at the coordinate-math
+  level (no `pdf-lib` needed), not yet re-verified against a real burn-in.

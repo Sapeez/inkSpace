@@ -2,6 +2,7 @@ import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupJsdom } from './setup/jsdom';
 import { TEST_IDS, TEXT_CONTENT } from './consts/inkSpace';
+import { MAX_UPLOAD_BYTES } from '../src/utils/uploadLimits.js';
 
 setupJsdom();
 
@@ -204,6 +205,38 @@ test('S6: a failed save shows the exact failure toast and leaves the modal open 
   });
   assert.ok(screen.getByTestId(TEST_IDS.SAVE_MODAL));
   assert.equal((screen.getByTestId(TEST_IDS.SAVE_MODAL_FILENAME_INPUT) as HTMLInputElement).disabled, false);
+});
+
+test('5.3: an oversized burned PDF is rejected client-side before Save is ever called, with the exact S6 toast plus a size-specific message', async () => {
+  const oversizedBase64 = Buffer.alloc(MAX_UPLOAD_BYTES + 1024).toString('base64');
+  let createAttachmentCalled = false;
+  globalThis.fetch = (async (url: string) => {
+    if (url.includes('/api/burn-in/')) {
+      return jsonResponse({ filename: 'report.pdf', mimeType: 'application/pdf', pdfBase64: oversizedBase64 });
+    }
+    createAttachmentCalled = true;
+    return jsonResponse({ id: 'new-id' });
+  }) as typeof fetch;
+
+  render(
+    <SaveModal
+      open
+      attachmentId="attachment-1"
+      originalFilename="report.pdf"
+      onClose={() => {}}
+      getAnnotations={() => []}
+    />,
+  );
+
+  const input = screen.getByTestId(TEST_IDS.SAVE_MODAL_FILENAME_INPUT) as HTMLInputElement;
+  fireEvent.change(input, { target: { value: 'my-report.pdf' } });
+  fireEvent.click(screen.getByTestId(TEST_IDS.SAVE_MODAL_CONFIRM_BUTTON));
+
+  await waitFor(() => {
+    assert.equal(screen.getByTestId(TEST_IDS.ERROR_TOAST).textContent, "Couldn't save my-report.pdf.");
+  });
+  assert.match(screen.getByTestId(TEST_IDS.SAVE_MODAL_SIZE_ERROR).textContent!, /14MB limit/);
+  assert.equal(createAttachmentCalled, false, 'the save endpoint must never be called for an oversized result');
 });
 
 test('Cancel closes the modal when not saving', () => {

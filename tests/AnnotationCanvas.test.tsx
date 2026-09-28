@@ -1,6 +1,7 @@
 import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupJsdom } from './setup/jsdom';
+import { boundingBoxTopLeft, flipY } from '../server/services/annotationGeometry.js';
 
 setupJsdom();
 
@@ -93,6 +94,62 @@ test('annotation object coordinates survive a rescale (dispose, serialize, reloa
   const restored = canvasB.getObjects()[0];
   assert.equal(restored.left, 100, 'logical left must be unchanged across the rescale');
   assert.equal(restored.top, 120, 'logical top must be unchanged across the rescale');
+});
+
+// 5.4/Risk R1: the "visual-diff smoke check" this task calls for, at the
+// coordinate-math level rather than a real pdf-lib burn-in (pdf-lib is not
+// installed in this sandbox — see spec.md §9 — but the actual position math
+// burn-in.ts uses, `annotationGeometry.ts`, has no such dependency and is
+// exactly what this test exercises). Native page size stays fixed (matching
+// pdf.js's own `getViewport({ scale: 1 })`, what `AnnotationCanvas.jsx`
+// creates every page's Fabric canvas at); only the on-screen pixel size
+// changes per "zoom level" via `handlePageRendered`'s `pdfCanvasEl` argument,
+// the same signal `PDFViewer.tsx` sends on every real zoom/fit-width change.
+test('5.4: a burned annotation\'s page-space position matches at fit-width, 100%, and 200% zoom — no coordinate drift', async () => {
+  const NATIVE_WIDTH = 600;
+  const NATIVE_HEIGHT = 800;
+  // Representative on-screen scales for fit-width (arbitrary <1x, here 0.8x),
+  // 100% (1x), and 200% (2x) — PDFViewer.tsx computes the actual fit-width
+  // scale from the viewer's clientWidth, but the exact value doesn't matter
+  // here: what matters is that three *different* scales all agree.
+  const ZOOM_LEVELS = [0.8, 1, 2];
+
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1, NATIVE_WIDTH, NATIVE_HEIGHT)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} />);
+
+  const pageSpaceBoxes = [];
+
+  for (const zoom of ZOOM_LEVELS) {
+    const { wrapper, pdfCanvas } = makePageWrapper(NATIVE_WIDTH * zoom, NATIVE_HEIGHT * zoom);
+    await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+
+    const canvas = ref.current.getCanvas(1);
+    // Only placed once (on the first, fit-width pass) — later passes reload
+    // this exact same object from `savedStateRef` via handlePagesReset's
+    // toJSON/loadFromJSON round-trip, the same path a real zoom click takes.
+    if (canvas.getObjects().length === 0) {
+      canvas.add(new Rect({ left: 100, top: 120, width: 50, height: 30, originX: 'left', originY: 'top' }));
+    }
+
+    const object = canvas.toJSON(['annotationTool']).objects[0];
+    // Mirrors burn-in.ts's drawRect: page-space x/y is the object's top-left
+    // corner with y flipped to PDF's bottom-up axis, entirely independent of
+    // whatever on-screen `zoom` was active when this JSON was captured.
+    const box = boundingBoxTopLeft(object);
+    pageSpaceBoxes.push({
+      x: box.x,
+      y: flipY(box.y + box.height, NATIVE_HEIGHT),
+      width: box.width,
+      height: box.height,
+    });
+
+    ref.current.handlePagesReset();
+    wrapper.remove();
+  }
+
+  assert.deepEqual(pageSpaceBoxes[1], pageSpaceBoxes[0], '100% zoom must burn in at the same page position as fit-width');
+  assert.deepEqual(pageSpaceBoxes[2], pageSpaceBoxes[0], '200% zoom must burn in at the same page position as fit-width');
 });
 
 test('a stale handlePageRendered call does not dispose the correct canvas built after it', async () => {
