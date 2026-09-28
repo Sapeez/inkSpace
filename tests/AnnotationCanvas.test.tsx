@@ -152,6 +152,57 @@ test('5.4: a burned annotation\'s page-space position matches at fit-width, 100%
   assert.deepEqual(pageSpaceBoxes[2], pageSpaceBoxes[0], '200% zoom must burn in at the same page position as fit-width');
 });
 
+// 5.4/Risk R1, companion to the test above (found in code review: that test
+// only covers an annotation *surviving* a rescale, not the act of *placing*
+// one at a given zoom in the first place) — drags a rectangle over the same
+// visual spot on the page at 100% and 200% zoom (the 200% drag's client
+// coordinates are exactly double the 100% drag's, matching how the same
+// on-screen spot maps to double the client pixels at double the zoom) and
+// confirms `canvas.getScenePoint`'s zoom-aware conversion (used by every
+// click/drag-to-place tool — see AnnotationCanvas.jsx's `startBoundsDrag`)
+// lands both at the identical PDF-point-space box, not a zoom-scaled one.
+test('5.4: dragging out a rectangle over the same visual spot places it at the same PDF-point box at 100% and 200% zoom', async () => {
+  const NATIVE_WIDTH = 600;
+  const NATIVE_HEIGHT = 800;
+
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1, NATIVE_WIDTH, NATIVE_HEIGHT)));
+  render(
+    <AnnotationCanvas
+      ref={ref}
+      attachmentId="a1"
+      pdfDoc={pdfDoc}
+      style={DEFAULT_ANNOTATION_STYLE}
+      activeTool="rectangle"
+    />,
+  );
+
+  function dragRectangleAt(zoom: number, wrapper: HTMLDivElement, pdfCanvas: HTMLCanvasElement) {
+    const canvas = ref.current.getCanvas(1);
+    stubBoundingClientRect(canvas, NATIVE_WIDTH * zoom, NATIVE_HEIGHT * zoom);
+    canvas.fire('mouse:down', { e: { clientX: 50 * zoom, clientY: 100 * zoom }, target: null });
+    canvas.fire('mouse:move', { e: { clientX: 250 * zoom, clientY: 200 * zoom } });
+    canvas.fire('mouse:up', {});
+    return canvas.getObjects().at(-1);
+  }
+
+  const { wrapper: wrapperA, pdfCanvas: pdfCanvasA } = makePageWrapper(NATIVE_WIDTH, NATIVE_HEIGHT);
+  await ref.current.handlePageRendered(1, wrapperA, pdfCanvasA);
+  const rectAt100 = dragRectangleAt(1, wrapperA, pdfCanvasA);
+
+  ref.current.handlePagesReset();
+  wrapperA.remove();
+
+  const { wrapper: wrapperB, pdfCanvas: pdfCanvasB } = makePageWrapper(NATIVE_WIDTH * 2, NATIVE_HEIGHT * 2);
+  await ref.current.handlePageRendered(1, wrapperB, pdfCanvasB);
+  const rectAt200 = dragRectangleAt(2, wrapperB, pdfCanvasB);
+
+  assert.equal(rectAt200.left, rectAt100.left, 'placement must not leak the on-screen zoom into PDF-point left');
+  assert.equal(rectAt200.top, rectAt100.top, 'placement must not leak the on-screen zoom into PDF-point top');
+  assert.equal(rectAt200.width, rectAt100.width);
+  assert.equal(rectAt200.height, rectAt100.height);
+});
+
 test('a stale handlePageRendered call does not dispose the correct canvas built after it', async () => {
   let getPageCalls = 0;
   let resolveFirstGetPage: () => void = () => {};
