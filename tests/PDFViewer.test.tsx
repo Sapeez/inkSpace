@@ -105,6 +105,12 @@ function setGlobalIntersectionObserver(value: unknown): void {
 function makeFakeIntersectionObserver(callback: IntersectionObserverCallback) {
   const observed = new Set<Element>();
   return {
+    // Exposed (not just tracked internally) so a test can assert the
+    // component actually subscribed a given page to the observer — without
+    // this, `.trigger()` below would "work" even if the real component never
+    // called `.observe()` for that page at all, since `.trigger()` invokes
+    // the stored callback directly rather than checking membership itself.
+    observed,
     observe(target: Element) {
       observed.add(target);
     },
@@ -166,16 +172,24 @@ test('5.2: only the target page renders eagerly; the rest render lazily as they 
 
     const observer = instances.at(-1)!;
     const page2Wrapper = document.getElementById('pdf-page-2')!;
+    const page3Wrapper = document.getElementById('pdf-page-3')!;
     assert.ok(page2Wrapper, 'every page gets a placeholder wrapper up front, even before it renders');
+    assert.ok(page3Wrapper, 'page 3 also has a placeholder, for correct scroll height');
     assert.equal(page2Wrapper.querySelector('canvas'), null, 'page 2 has no canvas yet — it has not rendered');
+    // Proves the component actually subscribed the not-yet-rendered pages to
+    // the observer — without this, `.trigger()` below would still "work" (it
+    // invokes the stored callback directly) even if the component forgot to
+    // call `.observe()` at all, which would mean these pages never lazily
+    // render against a *real* IntersectionObserver in production.
+    assert.ok(observer.observed.has(page2Wrapper), 'page 2 must be subscribed to the observer');
+    assert.ok(observer.observed.has(page3Wrapper), 'page 3 must be subscribed to the observer');
 
     observer.trigger(page2Wrapper, true);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     assert.deepEqual(renderedPages, [1, 2], 'page 2 renders once the observer reports it intersecting');
-    assert.ok(document.getElementById('pdf-page-3'), 'page 3 also has a placeholder, for correct scroll height');
     assert.equal(
-      document.getElementById('pdf-page-3')!.querySelector('canvas'),
+      page3Wrapper.querySelector('canvas'),
       null,
       'page 3 still has not rendered — it never intersected',
     );

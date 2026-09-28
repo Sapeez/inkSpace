@@ -201,7 +201,11 @@ test('S6: a failed save shows the exact failure toast and leaves the modal open 
   fireEvent.click(screen.getByTestId(TEST_IDS.SAVE_MODAL_CONFIRM_BUTTON));
 
   await waitFor(() => {
-    assert.equal(screen.getByTestId(TEST_IDS.ERROR_TOAST).textContent, "Couldn't save my-report.pdf.");
+    assert.equal(
+      screen.getByTestId(TEST_IDS.ERROR_TOAST).textContent,
+      "Couldn't save my-report.pdf.",
+      'error toast missing or wrong text',
+    );
   });
   assert.ok(screen.getByTestId(TEST_IDS.SAVE_MODAL));
   assert.equal((screen.getByTestId(TEST_IDS.SAVE_MODAL_FILENAME_INPUT) as HTMLInputElement).disabled, false);
@@ -233,7 +237,11 @@ test('5.3: an oversized burned PDF is rejected client-side before Save is ever c
   fireEvent.click(screen.getByTestId(TEST_IDS.SAVE_MODAL_CONFIRM_BUTTON));
 
   await waitFor(() => {
-    assert.equal(screen.getByTestId(TEST_IDS.ERROR_TOAST).textContent, "Couldn't save my-report.pdf.");
+    assert.equal(
+      screen.getByTestId(TEST_IDS.ERROR_TOAST).textContent,
+      "Couldn't save my-report.pdf.",
+      'error toast missing or wrong text',
+    );
   });
   assert.match(screen.getByTestId(TEST_IDS.SAVE_MODAL_SIZE_ERROR).textContent!, /14MB limit/);
   assert.equal(createAttachmentCalled, false, 'the save endpoint must never be called for an oversized result');

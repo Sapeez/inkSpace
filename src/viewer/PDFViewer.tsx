@@ -184,12 +184,24 @@ export default function PDFViewer({
             await renderOnePage(entry);
           }
         } else {
+          const entryByWrapper = new Map<Element, PageEntry>(pageEntries.map((entry) => [entry.pageWrapper, entry]));
           observer = new IntersectionObserver(
             (entries) => {
               entries.forEach((intersectionEntry) => {
                 if (!intersectionEntry.isIntersecting) return;
-                const entry = pageEntries.find((candidate) => candidate.pageWrapper === intersectionEntry.target);
-                if (entry) renderOnePage(entry);
+                const entry = entryByWrapper.get(intersectionEntry.target);
+                if (!entry) return;
+                // Fire-and-forget from an IntersectionObserver callback, which
+                // can't be awaited — but a rejection here (a real pdf.js render
+                // failure, not just a cancelled in-flight task) must still
+                // surface visibly, not vanish as an unhandled rejection while
+                // leaving the page permanently blank (entry.rendered is set
+                // synchronously at the top of renderOnePage, so it would never
+                // be retried otherwise).
+                renderOnePage(entry).catch((err) => {
+                  if (cancelled) return;
+                  setRenderError(err instanceof Error ? err.message : 'Failed to render page');
+                });
               });
             },
             { root: viewerRef.current, rootMargin: `${VIEWPORT_RENDER_BUFFER_PX}px` },

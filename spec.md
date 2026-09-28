@@ -681,7 +681,13 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   `tests/routePermissionAudit.test.ts`, a static sweep over the route files' source (not an import — those
   files pull in `pdf-lib` transitively, not installed in this sandbox) asserting every non-GET route
   handler is gated by `requirePermission`, so a future route added without it fails this test rather than
-  shipping an IDOR silently.
+  shipping an IDOR silently. **Found in code review:** the sweep's own regex is narrow (single-quoted path,
+  literal `async` handler) — a future route written differently (double-quoted/template-literal path, a
+  synchronous handler) would be invisible to it, not fail it; a non-`async` handler could even make the
+  non-greedy capture scan into the *next* route's `requirePermission` call and credit it wrongly. Fixed by
+  adding a second test that counts every `router.<method>(` call site with a much looser pattern and asserts
+  it equals the strict pattern's own count — any future route shape the strict pattern can't see now fails
+  *this* canary loudly instead of the main sweep silently passing for the wrong reason.
 - **5.2 (virtualized/progressive rendering):** `PDFViewer.tsx`'s render effect now builds every page's
   placeholder wrapper up front (cheap — page metadata only, sized to the real viewport so scroll height,
   thumbnail nav, and page-jump all still work immediately), eagerly rasterizes only the page the user is
@@ -694,7 +700,19 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   (just back-to-back before, staggered now). Test: `tests/PDFViewer.test.tsx`'s new case installs a fake
   `IntersectionObserver` and asserts only the target page renders up front, and that triggering a fake
   intersection for another page's wrapper is what makes *it* render — the third page never renders since it
-  never intersects, proving the lazy path actually defers work rather than just looking like it does.
+  never intersects, proving the lazy path actually defers work rather than just looking like it does; it
+  also asserts the not-yet-rendered pages were actually subscribed to the fake observer (`observed.has(...)`)
+  — found in code review: without that check, the test would still pass even if the component forgot to
+  call `.observe()` at all, which would mean those pages never lazily render against a *real*
+  `IntersectionObserver` in production. **Also found in code review:** the `IntersectionObserver` callback's
+  `renderOnePage(entry)` call is fire-and-forget (an observer callback can't be awaited) and had no
+  `.catch()` — a real `pdf.js` render failure on a lazily-rendered page would have been an unhandled
+  rejection, leaving that page permanently blank (its `rendered` flag is already set, so it's never retried)
+  with no visible error at all, a straight regression from the pre-5.2 behavior where any page's render
+  failure surfaced via the effect's own `try`/`catch`. Fixed: the callback now catches and calls
+  `setRenderError`. Also switched the callback's `pageEntries.find(...)` (O(n) per intersecting entry, O(n²)
+  worst case for a huge document with many pages intersecting in one batch) to a `Map<Element, PageEntry>`
+  built once per render pass.
   **Found and fixed in this same diff, unrelated to virtualization itself:** a pre-existing `assert.ok(...)`
   call (no message) inside `PDFViewer.test.tsx`'s own "fitWidth ignores a stale result" test's `waitFor`
   poll turned a transient, expected mid-poll failure into a ~8.7-second stall once this file's size crossed

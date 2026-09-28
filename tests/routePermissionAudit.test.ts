@@ -19,7 +19,24 @@ const ROUTE_FILES = ['server/routes/attachments.js', 'server/routes/burn-in.js',
 // Matches `router.<method>('<path>', ...middleware, async (req, res...`,
 // capturing everything between the path and the handler so
 // `requirePermission` can be searched for within just that middleware list.
+// Deliberately narrow (single-quoted path, `async` handler) — see
+// LOOSE_ROUTE_CALL_PATTERN's comment below for why that narrowness is safe.
 const ROUTE_CALL_PATTERN = /router\.(get|post|patch|put|delete)\(\s*'([^']*)'\s*,([\s\S]*?)async/g;
+
+// Found in code review: ROUTE_CALL_PATTERN's own narrowness (single-quoted
+// path, literal `async` handler) means a future route written with a
+// double-quoted/template-literal path, or a synchronous (non-`async`)
+// handler, would simply never match it at all — silently invisible to the
+// sweep below, rather than failing it. Worse, a non-`async` handler could
+// make the non-greedy `([\s\S]*?)async` capture scan forward into the
+// *next* route's `async` keyword, potentially crediting an unguarded route
+// with its neighbor's `requirePermission` call. This much looser pattern
+// (just `router.<method>(`, any quote style, no handler-shape assumption)
+// is used only to *count* call sites, as a canary: if this count ever
+// diverges from ROUTE_CALL_PATTERN's own count, some route's actual shape
+// has drifted out from under the strict pattern's assumptions, and a human
+// needs to update it rather than the sweep silently missing that route.
+const LOOSE_ROUTE_CALL_PATTERN = /router\.(get|post|patch|put|delete)\(/g;
 
 // The one documented, intentional exception: creating a brand-new attachment
 // row, always owned by the caller (`ownerId`, read from the request's own
@@ -28,6 +45,21 @@ const ROUTE_CALL_PATTERN = /router\.(get|post|patch|put|delete)\(\s*'([^']*)'\s*
 // route's own comment in attachments.js and spec.md §3.4's "always owned by
 // whoever saves them" note.
 const EXEMPT = new Set(['server/routes/attachments.js:post:/']);
+
+test('5.5: ROUTE_CALL_PATTERN sees every router.<method>(...) call site — no route shape has drifted out from under it', () => {
+  for (const file of ROUTE_FILES) {
+    const source = readFileSync(join(repoRoot, file), 'utf8');
+    const strictCount = source.match(ROUTE_CALL_PATTERN)?.length ?? 0;
+    const looseCount = source.match(LOOSE_ROUTE_CALL_PATTERN)?.length ?? 0;
+    assert.equal(
+      strictCount,
+      looseCount,
+      `${file}: found ${looseCount} router.<method>(...) call(s) but only ${strictCount} matched the strict, ` +
+        `permission-checking pattern — a route was likely added in an unexpected style (non-single-quoted path, ` +
+        `or a non-async handler) and is invisible to the sweep below; update ROUTE_CALL_PATTERN`,
+    );
+  }
+});
 
 test('5.5: every non-GET route across attachments/burn-in/shares is gated by requirePermission, except the one documented exception', () => {
   for (const file of ROUTE_FILES) {
