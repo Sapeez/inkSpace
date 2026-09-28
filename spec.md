@@ -418,13 +418,88 @@ Target end state — server-side enforced, independent of anything the UI hides:
 
 Default-deny: access exists only via an explicit grant.
 
-**Current implementation gap:** `server/middleware/permissions.ts` implements the read/write/burn-in
-checks (`canRead`, `canWrite`, `canBurnIn`) against the `shares` table correctly, but every route still
-identifies the caller from a client-supplied `x-user-id` header (`requirePermission` in
-`server/middleware/permissions.ts:68`), not a verified Supabase JWT. Until real auth lands (tracked as
-task 1.6 / 4.3 in `tasks/tasks-accounts-workspace.md`), P1–P5 are enforceable in test/dev but **not
-safe against a malicious client**, which can simply send someone else's user id. Treat this as the bar
-to build to, not the current guarantee — flag it in any security review until closed.
+**Implementation (task 4.0):**
+- `server/middleware/permissions.ts` — `canRead`/`canWrite`/`canBurnIn` (pre-existing) plus `isOwner`
+  (owner-only gate for share management) and `getAttachmentRole` (returns `'owner' | 'edit' | 'view' |
+  'none'`, used by the viewer to decide what to render).
+- `server/services/shares.ts` + `server/services/users.ts` — `listShares`/`createShare`/`removeShare`
+  against the `shares` table; `createShare` resolves the grantee's email to a `grantee_user_id` via
+  `resolveUserIdByEmail` (best-effort, `supabase.auth.admin.listUsers()` — there's no `profiles` table
+  and `auth.users` isn't exposed over PostgREST, so this pages through users and matches client-side;
+  doesn't scale past one page of 1000 and should be replaced once accounts-workspace adds a `profiles`
+  table). Unresolved emails are still stored (so they show up in the share list) but grant nothing —
+  `canRead`/`canWrite` match on `grantee_user_id`, never on email — until some future reconciliation
+  step backfills it; no such backfill exists yet, so P2's "otherwise view-only" is really "otherwise
+  nothing" today for an unregistered email, not a degrade-to-view-only. Re-sharing to the same email
+  upserts (updates the role) rather than erroring on the table's unique `(attachment_id,
+  grantee_email)` constraint.
+- `server/routes/shares.ts` — `GET/POST /api/attachments/:attachmentId/shares` (list/grant) and
+  `DELETE /api/attachments/:attachmentId/shares/:shareId` (revoke), all gated by
+  `requirePermission(isOwner)` — mounted in `server/index.js` with its own `:attachmentId` param
+  (`Router({ mergeParams: true })`), not nested inside `attachments.js`'s router, per this task list's
+  Relevant Files split. **Never returns the internal `Share` shape directly** — `toClientShare()` strips
+  `granteeUserId`/`grantedBy` before `res.json(...)`. Found in code review: with identity still the
+  `x-user-id` header stub, sending another real user's `auth.users` UUID to the browser would have let
+  anyone who read a `GET .../shares` response impersonate that grantee on every other route by setting
+  it as their own `x-user-id` (`src/lib/currentUser.ts`) — not a cosmetic leak, an authorization bypass.
+  Regression-tested in `tests/permissions.api.test.ts` (asserts neither key is present on either
+  endpoint's response).
+- `server/routes/attachments.js`'s `GET /:id` now also computes `getAttachmentRole(req.userId, ...)`
+  and includes it as `role` on the response — the one signal `ViewerPage.jsx`/`Toolbar.jsx` use to
+  decide what to render (P3/P4).
+- `src/modals/ShareModal.tsx` — owner-only modal (Share button only renders for `role === 'owner'`,
+  matching P1's "an owner grants access," not an edit-share holder): email + edit/view select, submit
+  grants, lists current shares, each with a Revoke button. Validates the shape of every
+  `fetchShares`/`createShare` response with a runtime `isShare` guard (mirroring
+  `usePdfDocument.ts`'s `isAttachmentDownload`) before trusting it, rather than a bare `as Share` cast —
+  added in review after the first version skipped this check.
+- `src/toolbar/Toolbar.jsx` — `role` prop (`'owner' | 'edit' | 'view' | undefined`) gates the annotation
+  tool buttons, `StyleControls`, and the Save button (hidden — not just visually hidden, absent from the
+  DOM — for `role === 'view'`); the Share button only renders for `role === 'owner'`. `role === undefined`
+  (no prop passed) keeps the pre-4.0 full-toolbar behavior for backward compatibility with
+  `tests/Annotator.test.tsx`'s harness. Download stays visible regardless of role — P3 only names the
+  annotation tools and Save; see the known-gap note below for why that's an inherited, not new, rough
+  edge. **`ViewerPage.jsx` passes `role={loading ? 'view' : attachment?.role}`, not the raw
+  `attachment?.role`** — found in review: `attachment` is `null` for the whole initial fetch, and
+  `attachment?.role !== 'view'` (i.e. `undefined !== 'view'`) was `true` during that window, so
+  `Toolbar.jsx`'s own back-compat default then briefly showed full edit affordances before the real
+  role resolved. Treating "not yet known" the same as `'view'` (default-deny) closes that window.
+- `src/viewer/ViewerPage.jsx` also passes `activeTool={null}` to `AnnotationCanvas.jsx` for a
+  view-only role — hiding the toolbar's tool buttons alone isn't enough, since
+  `AnnotationCanvas.jsx`'s `applyActiveTool` keys `isDrawingMode`/pointer-events entirely off
+  `activeTool`, and the default tool is `'pen'`; without this, a view-only session could still draw
+  via the canvas with no visible button ever having triggered it. A non-tool-id value makes every one
+  of `AnnotationCanvas.jsx`'s tool-membership checks false, disabling the overlay's pointer-events
+  entirely.
+- `src/viewer/NotesPanel.tsx` — the P4 "notes" control, rendered by `Toolbar.jsx` only when
+  `role === 'view'`. Deliberately **not** wired into burn-in/save (a view-only session has no edit
+  permission for those endpoints regardless) and **not persisted anywhere** — there is no notes table
+  or endpoint anywhere in this task list, so this is a session-only/local-to-the-tab list of text notes.
+  This is a scoping decision made while implementing 4.7, not a PRD requirement — flag it if a future
+  PRD update wants notes to survive a reload.
+- `src/viewer/NoAccessState.tsx` + `src/viewer/usePdfDocument.ts`'s new `accessDenied` flag — when the
+  attachment fetch fails with 401/403/404, `ViewerPage.jsx` renders `NoAccessState` instead of the
+  toolbar/viewer/etc. entirely (P5), rather than showing the generic error string inside the normal
+  layout the way any other fetch failure does.
+- `src/lib/http.js`'s `request()` now attaches `.status` to the `Error` it throws on a non-2xx response
+  (needed for the `accessDenied` check above), and, on the client, attaches an `x-user-id` header read
+  from `src/lib/currentUser.ts` — see the known-gap note below.
+
+**Current implementation gap:** `server/middleware/permissions.ts` implements the read/write/burn-in/
+owner/role checks against the `shares` table correctly, but every route still identifies the caller from
+a client-supplied `x-user-id` header (`requirePermission` in `server/middleware/permissions.ts`), not a
+verified Supabase JWT. Until real auth lands (tracked as task 1.6 in `tasks/tasks-accounts-workspace.md`),
+P1–P5 are enforceable in test/dev but **not safe against a malicious client**, which can simply send
+someone else's user id. Treat this as the bar to build to, not the current guarantee — flag it in any
+security review until closed.
+
+**New client-side half of that same stub:** before task 4.0, the browser never sent `x-user-id` at all
+(every attachment fetch would have 401'd against the real server). `src/lib/currentUser.ts` adds a
+localStorage-backed `getCurrentUserId`/`setCurrentUserId` so a manual tester can act as different users
+(owner vs. a share recipient) across tabs/reloads without a real login flow, and `http.js` sends it on
+every request. This is explicitly scoped as "just enough to exercise P1–P5 by hand and in tests" — it is
+not a login UI, has no signup, and should be deleted wholesale (not extended) once `requireAuth`/a
+verified Supabase JWT lands.
 
 ## 5. Edge Cases
 
@@ -475,7 +550,10 @@ Demonstrable on a real attachment, by someone other than the builder:
    controls disabled while burning/saving, and ends in the exact success/failure toast — dialog stays
    open. — **§3.4**
 5. An owner can grant edit/view by email; a non-edit recipient gets the view-only experience (no tools,
-   no Save, a notes button instead); no-access or dead link gets the empty state. — **§4**
+   no Save, a notes button instead); no-access or dead link gets the empty state. — **§4**. Note:
+   Download itself stays visible for a view-only session (P3 only names the annotation tools and Save) —
+   clicking it still 403s today, since Download is implemented via the burn-in endpoint (edit-only); a
+   plain "download the original, unannotated file" path for view-only users isn't in this task list.
 6. None of the §6 out-of-scope items has been added to the shipped UI or API.
 
 Success metrics for grading whether each is *actually* met (checkable by a second person, not just
@@ -498,13 +576,31 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 | 1 — Viewer (V1–V8) | Done (1.1–1.10): render/scroll/loading/thumbnails, page navigator, zoom in/out, pan, fit-width, confirmed absence of default pdf.js print/search UI, and component tests for `PDFViewer`/`PageNavigator`. |
 | 2 — Annotation tools (A1–A9) | Done (2.1–2.14; 2.15's tests land alongside): Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). Pen/Freeform Highlighter (2.4/2.6), Text (2.5), Text Highlighter (2.7), Rectangle/Ellipse (2.8), Line/Arrow (2.8), Cloud (2.9), the global style control (`StyleControls.tsx`, 2.10), Polygon (2.11), Signature (2.12), select/move/resize (2.13, A5), and the delete-confirmation modal (2.14, A6) are implemented. Signature (`SignatureUploader.tsx`): validates type/size client-side, re-encodes the upload through an offscreen `<canvas>` before placing it (A8/R8's client-side half — the *authoritative* server-side re-check/re-encode is still task 5.3/5.6, not done), and places it via `AnnotationCanvas.jsx`'s `addSignatureImage` at a default width (clamped to the page's own width) on whichever page is currently on screen. Select/move/resize (2.13): see §3.2's A5 note for the Pen/Freeform Highlighter fix this required. Delete (2.14): see §3.2's A6 note. |
 | 3 — Download & Save (D1–D3, S1–S8, F1–F6) | Implemented (3.1–3.11): burn-in (`server/services/burn-in.ts` + `annotationGeometry.ts`), save-as-new-attachment (`server/services/storage.ts`'s `saveAttachment`/`downloadAttachmentBytes`), `src/utils/filenameUtils.ts` (F1–F6, shared client/server), `SaveModal.tsx`, and the Download/Save toolbar wiring in `ViewerPage.jsx`/`Toolbar.jsx`. **Blocked on dependency install:** `pdf-lib` could not actually be installed in the session that wrote this — the sandboxed environment's network access to `registry.npmjs.org` timed out, and redirecting to the Autodesk Artifactory mirror was itself blocked by the harness's own policy. `server/services/burn-in.ts` and `storage.ts` are written against `pdf-lib`'s documented API but have never actually been run — `npm run typecheck` currently fails on exactly those two files' `pdf-lib` import (nothing else). **Action needed:** run `npm install pdf-lib` in an environment with real registry access, then re-run `npm run typecheck` and `npm test` (particularly exercise a real Download/Save against a real attachment) before treating burn-in as verified rather than reviewed-but-unrun. The coordinate math those two files depend on (`annotationGeometry.ts`) has no such dependency and *is* unit-tested (`tests/annotationGeometry.test.ts`). |
-| 4 — Permissions & sharing (P1–P5) | Partial: `shares` table and `canRead`/`canWrite`/`canBurnIn` logic exist and are unit-tested (`tests/permissions.test.ts`). Identity is still the `x-user-id` header stub (see §4 gap). `ShareModal`, `NoAccessState`, and the grant endpoint are not built. |
+| 4 — Permissions & sharing (P1–P5) | Implemented (4.1–4.11, see §4's "Implementation" note): `shares` table (4.1, pre-existing); `isOwner`/`getAttachmentRole` added to `permissions.ts`; grant/list/revoke endpoints (`server/routes/shares.ts`, 4.4); `ShareModal.tsx` (4.6); `Toolbar.jsx` role-gating + `NotesPanel.tsx` (4.7); `NoAccessState.tsx` wired via `usePdfDocument.ts`'s `accessDenied` (4.8/4.9); unit tests (`tests/permissions.test.ts`, `tests/shares.test.ts`) and real-HTTP 403/401 tests (`tests/permissions.api.test.ts`, 4.10/4.11) — the burn-in/attachments half of that last file self-skips pending the `pdf-lib` install (see Phase 3's row and §9); the shares-endpoint half runs for real against the live Supabase project. Identity is still the `x-user-id` header stub, now with a client-side half too (see §4 gap notes) — not yet a security boundary. `npm run supabase:migrate` (4.2) itself wasn't run this session — it's a production-deploy-classified command this environment's auto-mode blocked; the migration it would apply was already applied in an earlier session (confirmed indirectly: `tests/permissions.test.ts` already passes reads/writes against the real `shares` table). Playwright-level coverage of P1–P5 (`agents/rules/integration-tests.md` §8/§15) doesn't exist yet — `@playwright/test` and the `tests/fixtures/testFixtures`/`BasePage` scaffolding aren't installed in this repo, for the same npm-registry-access reason as the `pdf-lib` gap; `tests/consts/inkSpace.ts`/`routes.ts` were extended with the new `SHARE_*`/`NOTES_PANEL_*`/`TOOLBAR` test ids and `Routes.Shares`/`ShareById` (replacing the stale `Permissions`/`PermissionById`/`AttachmentDownload` entries) so that suite can be written directly against this implementation once the tooling exists. |
 | 5 — Hardening | Not started (depends on 2–4). |
 
 ## 9. Known Gaps to Track Until Closed
 
 - **Auth is a stub, not a security boundary yet** — see §4. Do not treat P1–P5 as satisfied until
-  `requirePermission` reads identity from a verified Supabase JWT instead of `x-user-id`.
+  `requirePermission` reads identity from a verified Supabase JWT instead of `x-user-id`. As of task
+  4.0 the client also has a matching localStorage-backed identity stub (`src/lib/currentUser.ts`) — it
+  needs to be deleted, not migrated, when real auth lands.
+- **Email→user-id resolution doesn't scale and has no backfill** — `resolveUserIdByEmail` pages through
+  `supabase.auth.admin.listUsers()` (no email filter exists on that API) and stops at 1000 users; and a
+  share granted to an email that doesn't have an account yet is stored but grants nothing until some
+  future step re-resolves it — no such step exists. Replace both once accounts-workspace adds a
+  `profiles` table.
+- **No Playwright/integration-test coverage for P1–P5 (or anything else in this task list)** —
+  `@playwright/test` isn't installed and none of `tests/fixtures/testFixtures`, `BasePage`, or
+  `tests/integration/` exist yet in this repo, blocked by the same npm-registry access issue as
+  `pdf-lib` below. `tests/permissions.api.test.ts` covers the same P1–P5/R4 403/401 requirements at the
+  HTTP level with `node --test` instead.
+- **The P4 notes control is session-only, not persisted** — see §4's `NotesPanel.tsx` note. Revisit if
+  a future PRD update wants notes to survive a reload.
+- **`npm run supabase:migrate` (task 4.2) wasn't run this session** — blocked by this environment's
+  auto-mode classifier as a production-deploy action. The schema it targets was already live (this
+  session's tests read/write it successfully), so this is a process gap, not a known schema drift;
+  someone with deploy authorization should still run it once to confirm.
 - **`pdf-lib` is not actually installed** — see §8's Phase 3 row. `burn-in.ts`/`storage.ts` are written
   and reviewed but have never been run against a real PDF. Do not treat burn-in as verified until someone
   with real registry access runs `npm install pdf-lib` and re-runs the full test suite plus a real

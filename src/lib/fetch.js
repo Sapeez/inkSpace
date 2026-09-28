@@ -10,6 +10,7 @@ export function fetchAttachments(params = {}) {
   return request(`/api/attachments${query ? `?${query}` : ''}`);
 }
 
-export function fetchPermissions(attachmentId) {
-  return request(`/api/attachments/${encodeURIComponent(attachmentId)}/permissions`);
+// 4.4/4.6: lists the current shares (P1) for the ShareModal's owner-only view.
+export function fetchShares(attachmentId) {
+  return request(`/api/attachments/${encodeURIComponent(attachmentId)}/shares`);
 }

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requirePermission, canRead, canWrite } from '../middleware/permissions.js';
+import { requirePermission, canRead, canWrite, getAttachmentRole } from '../middleware/permissions.js';
 import { saveAttachment, downloadAttachment } from '../services/storage.js';
 import { validateFilename } from '../../src/utils/filenameUtils.js';
 
@@ -13,10 +13,16 @@ const router = Router();
 // reject it after the fact.
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// P3/P4: `role` drives ViewerPage.jsx's tool visibility — computed here
+// (rather than trusted from anywhere client-supplied) since `requirePermission`
+// has already confirmed the caller has at least read access by this point.
 router.get('/:id', requirePermission(canRead), async (req, res, next) => {
   try {
-    const data = await downloadAttachment(req.params.id);
-    res.json(data);
+    const [data, role] = await Promise.all([
+      downloadAttachment(req.params.id),
+      getAttachmentRole(req.userId, req.params.id),
+    ]);
+    res.json({ ...data, role });
   } catch (err) {
     next(err);
   }

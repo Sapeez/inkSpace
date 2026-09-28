@@ -15,8 +15,9 @@ export function createAnnotation(attachmentId, payload) {
   });
 }
 
-export function createPermission(attachmentId, payload) {
-  return request(`/api/attachments/${encodeURIComponent(attachmentId)}/permissions`, {
+// 4.4: grants edit|view access by email (owner only, enforced server-side).
+export function createShare(attachmentId, payload) {
+  return request(`/api/attachments/${encodeURIComponent(attachmentId)}/shares`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });

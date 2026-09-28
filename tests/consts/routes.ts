@@ -1,8 +1,7 @@
 export const Routes = {
   Attachments: '**/api/attachments',
   AttachmentById: '**/api/attachments/:id',
-  AttachmentDownload: '**/api/attachments/:id/download',
   BurnIn: '**/api/burn-in/:attachmentId',
-  Permissions: '**/api/permissions',
-  PermissionById: '**/api/permissions/:id',
+  Shares: '**/api/attachments/:attachmentId/shares',
+  ShareById: '**/api/attachments/:attachmentId/shares/:shareId',
 } as const;

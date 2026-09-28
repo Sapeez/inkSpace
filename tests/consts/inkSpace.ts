@@ -13,6 +13,7 @@ export const TEST_IDS = {
   FIT_WIDTH_BUTTON: 'fit-width-button',
 
   // ── Annotation toolbar (PRD A1) ───────────────────────────────────────────
+  TOOLBAR: 'toolbar',
   ANNOTATION_TOOLBAR: 'annotation-toolbar',
   TOOL_PEN: 'tool-pen',
   TOOL_FREEFORM_HIGHLIGHTER: 'tool-freeform-highlighter',
@@ -52,11 +53,21 @@ export const TEST_IDS = {
   // ── Permissions & sharing (PRD P1–P5) ────────────────────────────────────
   SHARE_BUTTON: 'share-button',
   SHARE_MODAL: 'share-modal',
+  SHARE_MODAL_CLOSE_BUTTON: 'share-modal-close-button',
   SHARE_EMAIL_INPUT: 'share-email-input',
   SHARE_ROLE_SELECT: 'share-role-select',
   SHARE_CONFIRM_BUTTON: 'share-confirm-button',
+  SHARE_FORM_ERROR: 'share-form-error',
+  SHARE_LIST: 'share-list',
+  SHARE_LIST_ITEM: 'share-list-item',
+  SHARE_LIST_ERROR: 'share-list-error',
+  SHARE_REVOKE_BUTTON: 'share-revoke-button',
   EMPTY_STATE: 'empty-state',
   NOTES_BUTTON: 'notes-button',
+  NOTES_PANEL: 'notes-panel',
+  NOTES_PANEL_INPUT: 'notes-panel-input',
+  NOTES_PANEL_ADD_BUTTON: 'notes-panel-add-button',
+  NOTES_PANEL_ITEM: 'notes-panel-item',
 } as const;
 
 export const TEXT_CONTENT = {

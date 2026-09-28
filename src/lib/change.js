@@ -18,12 +18,3 @@ export function changeAnnotation(attachmentId, annotationId, payload) {
   );
 }
 
-export function changePermission(attachmentId, permissionId, payload) {
-  return request(
-    `/api/attachments/${encodeURIComponent(attachmentId)}/permissions/${encodeURIComponent(permissionId)}`,
-    {
-      method: 'PATCH',
-      body: JSON.stringify(payload),
-    }
-  );
-}

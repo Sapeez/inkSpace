@@ -166,6 +166,19 @@ test('the pen tool puts the canvas into free-drawing mode with the default red 4
   assert.equal(canvas.upperCanvasEl.style.pointerEvents, 'none', 'and stop intercepting pointer input');
 });
 
+test('P3: activeTool=null (ViewerPage.jsx\'s view-only gate) fully disables drawing and pointer input', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool={null} />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+
+  const canvas = ref.current.getCanvas(1);
+  assert.equal(canvas.isDrawingMode, false);
+  assert.equal(canvas.upperCanvasEl.style.pointerEvents, 'none');
+});
+
 test('a pen stroke renders fully opaque; a freeform-highlighter stroke of the same color/width renders semi-transparent', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));

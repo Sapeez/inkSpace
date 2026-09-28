@@ -16,9 +16,10 @@ export function removeAnnotation(attachmentId, annotationId) {
   );
 }
 
-export function removePermission(attachmentId, permissionId) {
+// 4.4/4.6: revokes a share (owner only, enforced server-side).
+export function removeShare(attachmentId, shareId) {
   return request(
-    `/api/attachments/${encodeURIComponent(attachmentId)}/permissions/${encodeURIComponent(permissionId)}`,
+    `/api/attachments/${encodeURIComponent(attachmentId)}/shares/${encodeURIComponent(shareId)}`,
     {
       method: 'DELETE',
     }

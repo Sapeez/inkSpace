@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import attachmentsRouter from './routes/attachments.js';
 import burnInRouter from './routes/burn-in.js';
+import sharesRouter from './routes/shares.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
@@ -22,6 +23,11 @@ app.get('/health', (_req, res) => {
 
 app.use('/api/attachments', attachmentsRouter);
 app.use('/api/burn-in', burnInRouter);
+// 4.4: owner-only grant/list/revoke of shares — mounted with its own
+// `:attachmentId` param (mergeParams in shares.ts) rather than nested inside
+// attachmentsRouter, per the file split in tasks/tasks-pdf-editor.md's
+// Relevant Files.
+app.use('/api/attachments/:attachmentId/shares', sharesRouter);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

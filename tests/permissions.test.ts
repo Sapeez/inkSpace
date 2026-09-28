@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import 'dotenv/config';
-import { canRead, canWrite } from '../server/middleware/permissions.js';
+import { canRead, canWrite, isOwner, getAttachmentRole } from '../server/middleware/permissions.js';
 import { supabase } from '../server/lib/supabaseClient.js';
 
 const OWNER_ID = process.env.TEST_OWNER_USER_ID;
@@ -57,6 +57,19 @@ test(
       await t.test('a genuinely nonexistent attachment id defers to the route’s own 404', async () => {
         assert.equal(await canRead(ownerId, randomUUID()), true);
         assert.equal(await canWrite(ownerId, randomUUID()), true);
+      });
+
+      await t.test('4.3/4.4: isOwner is true only for the actual owner, and fails closed otherwise', async () => {
+        assert.equal(await isOwner(ownerId, attachmentId), true);
+        assert.equal(await isOwner(randomUUID(), attachmentId), false);
+        assert.equal(await isOwner(ownerId, 'not-a-real-uuid'), false);
+        assert.equal(await isOwner(ownerId, randomUUID()), false);
+      });
+
+      await t.test('4.3/4.7: getAttachmentRole reports owner/none correctly', async () => {
+        assert.equal(await getAttachmentRole(ownerId, attachmentId), 'owner');
+        assert.equal(await getAttachmentRole(randomUUID(), attachmentId), 'none');
+        assert.equal(await getAttachmentRole(ownerId, 'not-a-real-uuid'), 'none');
       });
     } finally {
       await supabase.from('attachments').delete().eq('id', attachmentId);
