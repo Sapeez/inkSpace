@@ -2,6 +2,9 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import ViewerPage from '../viewer/ViewerPage.jsx';
 import LoginPage from './LoginPage.tsx';
 import SignupPage from './SignupPage.tsx';
+import ForgotPasswordPage from './ForgotPasswordPage.tsx';
+import ResetPasswordPage from './ResetPasswordPage.tsx';
+import VerifyEmailPage from './VerifyEmailPage.tsx';
 import WorkspacePage from '../workspace/WorkspacePage.tsx';
 import { useSession } from '../lib/session.ts';
 
@@ -30,6 +33,9 @@ export default function App() {
       <Route path="/" element={<EntryRedirect />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route
         path="/workspace"
         element={

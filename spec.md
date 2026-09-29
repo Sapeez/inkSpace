@@ -505,10 +505,51 @@ security/product review of the accounts-workspace feature:
   depends on the Supabase project's own Auth setting for whether `signUp`/`signInWithPassword` issue a
   session before the email is confirmed. `SignupPage.tsx`/`LoginPage.tsx` handle both outcomes in code
   (a null `session` after signup shows a "check your email" notice instead of erroring), but nobody
-  confirmed live which behavior this project's dashboard is actually configured for.
+  confirmed live which behavior this project's dashboard is actually configured for. **Re-confirmed in
+  task 2.4:** a repo-wide grep for any `email_confirmed`/`confirmed_at`/"must be verified"-shaped check
+  under `server/` and `src/` finds nothing — there is still no code path anywhere that gates login or
+  workspace access on verification status. EV2 is satisfied by absence of a gate, not by a test that
+  exercises the live Supabase setting.
 - **Google sign-in (SU2/LG2) and its auto-linking edge case (SU4/R1) were dropped from scope entirely**,
   by explicit decision recorded in `tasks/tasks-accounts-workspace.md` task 1.1 — not deferred, not a
   gap. Email/password is the only sign-in method.
+
+**Task 2.0 (password reset & email verification):** `ForgotPasswordPage.tsx` (PR1, linked from
+`LoginPage.tsx`'s existing "Forgot password?" link) calls `supabase.auth.resetPasswordForEmail(email, {
+redirectTo: '<origin>/reset-password' })` and always shows the same "if an account exists…" notice
+regardless of whether the email actually has an account — deliberate, to avoid using this form as an
+email-enumeration oracle. `ResetPasswordPage.tsx` (PR2/PR3, routed at `/reset-password`) relies entirely
+on Supabase's own recovery-link handling: a valid link has its tokens consumed automatically by the
+Supabase client's `detectSessionInUrl` (default `true`) before the component ever renders, leaving no
+error params to find; an expired or already-used link instead redirects back with
+`error`/`error_code`/`error_description` in the URL hash (or, per `src/lib/authLinkError.ts`'s shared
+`parseAuthLinkError`, the query string), which the page turns into a "Reset link expired" state with a
+link back to `/forgot-password` instead of rendering the new-password form. Submitting the form calls
+`supabase.auth.updateUser({ password })` — PR3 (old password invalidated immediately) is Supabase's own
+guarantee once that call succeeds, not something this component implements. `VerifyEmailPage.tsx`
+(EV1/EV3, routed at `/verify-email`) uses the same `parseAuthLinkError` helper for the
+signup-confirmation link: no error params means verification already succeeded (shows "Email verified" +
+a link to `/workspace`); error params show a "Verification link expired" state with a resend form that
+calls `supabase.auth.resend({ type: 'signup', email })`. None of these three pages sit behind
+`RequireSession` in `App.jsx` — reaching them is exactly the unauthenticated case they exist for. Task 3.3
+(email change) will trigger the same underlying `resend`/`updateUser` calls directly from
+`SettingsPage.tsx`, not by reusing `VerifyEmailPage.tsx` as a component. **Found in code review:** the
+link-error-parsing logic was originally duplicated verbatim across both pages; extracted to
+`src/lib/authLinkError.ts` in the same change, which also dropped a redundant `.replace(/\+/g, ' ')`
+(`URLSearchParams` already decodes `+` to a space) and a dead hash-without-`#` ternary branch that can't
+occur from a real `window.location.hash`. Also added: a test asserting `resetPasswordForEmail`'s
+`redirectTo` actually points at `/reset-password` (the literal PR1↔PR2 wiring, previously unchecked), and
+a query-string-based link-error test for each page (previously only the hash path was exercised).
+**Not verified live in this session:** an actual round-trip through a real Supabase project's emailed
+links (the redirect URL, hash-param shape, and `error_code` values used above are documented Supabase
+behavior, not observed against this project's own dashboard config) — same category of gap as EV2 above.
+**Before deploying:** this is the first caller of `resetPasswordForEmail`'s `redirectTo` option in the
+codebase (`SignupPage.tsx` doesn't pass one), so the Supabase project's Auth dashboard "Redirect URLs"
+allow-list must include `<origin>/reset-password` or the emailed link will fail in a way no current test
+(all component-level, against a mocked client) can catch. No Playwright coverage was added for the same
+`@playwright/test` install blocker as task 1.11 (see §9);
+`tests/ForgotPasswordPage.test.tsx`, `tests/ResetPasswordPage.test.tsx`, and `tests/VerifyEmailPage.test.tsx`
+cover the component-level behavior instead.
 
 ## 5. Edge Cases
 
@@ -631,7 +672,10 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   at the HTTP level with `node --test` instead; accounts-workspace task 1.11's planned
   `tests/integration/auth/signup-login.spec.ts` was **not created** for the same reason — writing a
   Playwright spec file with no way to run it would be dead weight, not coverage. `tests/SignupPage.test.tsx`
-  / `tests/LoginPage.test.tsx` cover the equivalent component-level behavior instead.
+  / `tests/LoginPage.test.tsx` cover the equivalent component-level behavior instead. Task 2.5's planned
+  `tests/integration/auth/password-reset-verification.spec.ts` was skipped for the identical reason;
+  `tests/ForgotPasswordPage.test.tsx` / `tests/ResetPasswordPage.test.tsx` / `tests/VerifyEmailPage.test.tsx`
+  cover PR1–PR3/EV1/EV3 at the component level instead.
 - **The P4 notes control is session-only, not persisted** — see §4's `NotesPanel.tsx` note. Revisit if
   a future PRD update wants notes to survive a reload.
 - **`npm run supabase:migrate` (task 4.2) wasn't run this session** — blocked by this environment's
