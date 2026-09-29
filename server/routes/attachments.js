@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { requirePermission, canRead, canWrite, getAttachmentRole } from '../middleware/permissions.js';
-import { saveAttachment, downloadAttachment, listAttachments } from '../services/storage.js';
+import { requirePermission, canRead, canWrite, isOwner, getAttachmentRole } from '../middleware/permissions.js';
+import { saveAttachment, downloadAttachment, listAttachments, deleteAttachment } from '../services/storage.js';
 import { validateFilename } from '../../src/utils/filenameUtils.js';
 import { MAX_UPLOAD_BYTES, formatMegabytes } from '../../src/utils/uploadLimits.js';
 
@@ -75,8 +75,16 @@ router.patch('/:id', requirePermission(canWrite), async (_req, res) => {
   res.status(501).json({ message: 'Not implemented' });
 });
 
-router.delete('/:id', requirePermission(canWrite), async (_req, res) => {
-  res.status(501).json({ message: 'Not implemented' });
+// WF9: owner-only, not `canWrite` — an edit-shared collaborator can annotate
+// a file but shouldn't be able to permanently remove it from the owner's
+// workspace. `isOwner` fails closed (403), matching `shares.ts`'s own gate.
+router.delete('/:id', requirePermission(isOwner), async (req, res, next) => {
+  try {
+    await deleteAttachment(req.params.id);
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

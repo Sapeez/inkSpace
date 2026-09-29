@@ -25,3 +25,11 @@ export function removeShare(attachmentId, shareId) {
     }
   );
 }
+
+// WF4/R3: deleting a folder never deletes the files inside it — enforced
+// server-side (attachments.folder_id `on delete set null`), not just here.
+export function removeFolder(folderId) {
+  return request(`/api/folders/${encodeURIComponent(folderId)}`, {
+    method: 'DELETE',
+  });
+}

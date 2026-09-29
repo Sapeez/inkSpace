@@ -14,3 +14,13 @@ export function fetchAttachments(params = {}) {
 export function fetchShares(attachmentId) {
   return request(`/api/attachments/${encodeURIComponent(attachmentId)}/shares`);
 }
+
+// WF2: flat list of every folder in the caller's own workspace — the client
+// (FolderTree.tsx) builds the tree from `parentFolderId`.
+export function fetchFolders() {
+  return request('/api/folders');
+}
+
+export function fetchWorkspace() {
+  return request('/api/workspace');
+}

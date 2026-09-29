@@ -240,6 +240,31 @@ test(
         });
         assert.equal(response.status, 403);
       });
+
+      await t.test('WF9: a stranger cannot delete the attachment — 403, and it still exists after', async () => {
+        const response = await fetch(`${baseUrl}/api/attachments/${attachmentId}`, {
+          method: 'DELETE',
+          headers: authHeader(stranger.accessToken),
+        });
+        assert.equal(response.status, 403);
+
+        const { data } = await supabase.from('attachments').select('id').eq('id', attachmentId).maybeSingle();
+        assert.ok(data, 'the attachment must survive a denied delete attempt');
+      });
+
+      await t.test('WF9: the owner can delete the attachment — the row and the Storage object are both gone', async () => {
+        const response = await fetch(`${baseUrl}/api/attachments/${attachmentId}`, {
+          method: 'DELETE',
+          headers: authHeader(owner.accessToken),
+        });
+        assert.equal(response.status, 204);
+
+        const { data: row } = await supabase.from('attachments').select('id').eq('id', attachmentId).maybeSingle();
+        assert.equal(row, null);
+
+        const { data: download } = await supabase.storage.from(bucket).download(storagePath);
+        assert.equal(download, null);
+      });
     } finally {
       server.close();
       await supabase.from('attachments').delete().eq('id', attachmentId);

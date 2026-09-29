@@ -46,6 +46,14 @@ export default function App() {
         }
       />
       <Route
+        path="/workspace/folders/:folderId"
+        element={
+          <RequireSession>
+            <WorkspacePage />
+          </RequireSession>
+        }
+      />
+      <Route
         path="/settings"
         element={
           <RequireSession>

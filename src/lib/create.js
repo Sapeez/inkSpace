@@ -33,3 +33,12 @@ export function burnInAttachment(attachmentId, pages) {
     body: JSON.stringify({ pages }),
   });
 }
+
+// WF2: creates a folder in the caller's own workspace, optionally nested
+// under `parentFolderId` (null/omitted = top level).
+export function createFolder(payload) {
+  return request('/api/folders', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}

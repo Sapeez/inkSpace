@@ -689,7 +689,31 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 - **`pdf-lib` is not actually installed** — see §8's Phase 3 row. `burn-in.ts`/`storage.ts` are written
   and reviewed but have never been run against a real PDF. Do not treat burn-in as verified until someone
   with real registry access runs `npm install pdf-lib` and re-runs the full test suite plus a real
-  Download/Save against a real attachment.
+  Download/Save against a real attachment. **Worse than previously scoped, found during accounts-workspace
+  task 5.11's screenshot check:** `server/index.js` statically imports `attachments.js` and `burn-in.js`,
+  both of which transitively import `pdf-lib` at module load time — so `npm run dev`'s server process
+  (and `npm start`) crash on startup with `ERR_MODULE_NOT_FOUND` in this environment, not just the
+  burn-in/attachments routes. This means **no route in this app is reachable via a real running server**
+  right now, including the brand-new, entirely-unrelated `/api/workspace`/`/api/folders`/`/api/account`
+  (tasks 3.0/4.0), until `pdf-lib` is installed somewhere with real registry access. `npm test`'s
+  real-HTTP tests (`tests/*.api.test.ts`) are unaffected — they build their own minimal Express app per
+  file and only import the specific router under test, so `workspace.ts`/`folders.ts`/`account.ts` (which
+  don't touch `pdf-lib` at all) import and run fine there; only the one test file that imports
+  `attachments.js` (`tests/workspaceFolders.api.test.ts`'s WF1 case) self-skips for this reason, same
+  precedent as `tests/permissions.api.test.ts`. Task 5.11's screenshot check against a live `npm run dev`
+  was substituted with `tests/WorkspacePage.test.tsx` and the individual `src/workspace/*.tsx` component
+  tests instead — not fixed here, since making `burn-in.ts` (pdf-editor, already-shipped code, pervasive
+  `pdf-lib` type usage) lazy-load its dependency is out of scope for the accounts-workspace task list and
+  risks destabilizing already-reviewed code for a verification nicety.
+- **No pagination on `GET /api/attachments`/`GET /api/folders` (task 4.0) or the workspace UI that lists
+  them (task 5.0)** — `listAttachments`/`listFolders` return every row in one query, and
+  `WorkspacePage.tsx`/`SearchBar.tsx` filter that full list client-side (acceptable per code-review.md
+  §3 Performance, which only flags client-side filtering as a problem when the underlying list is itself
+  unbounded/unpaginated — which it is here). Flagged in task 4.9's review as something for task 5.0/6.0 to
+  consider; explicitly re-deferred here rather than fixed, since it needs a real pagination UI decision
+  (infinite scroll vs. numbered pages vs. a hard cap) that's a product call, not a one-line backend fix.
+  Not a problem at today's expected per-user file counts; revisit if a real workspace's file/folder count
+  makes the unbounded fetch a measured problem.
 - **`package.json`'s `test` script lists explicit globs per directory, not a recursive one** — extended
   in accounts-workspace task 1.0 to also cover `server/middleware/*.test.ts`, `server/lib/*.test.ts`, and
   `server/routes/*.test.ts` (colocated tests now exist in all three). It deliberately does **not**

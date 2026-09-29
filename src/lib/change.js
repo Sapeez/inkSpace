@@ -18,3 +18,27 @@ export function changeAnnotation(attachmentId, annotationId, payload) {
   );
 }
 
+// WF2: renames a folder the caller owns.
+export function changeFolder(folderId, payload) {
+  return request(`/api/folders/${encodeURIComponent(folderId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+// WF3: moves a file into `folderId`, or back to the top level when
+// `folderId` is `null`.
+export function moveAttachmentToFolder(attachmentId, folderId) {
+  return request(`/api/folders/move-file/${encodeURIComponent(attachmentId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ folderId }),
+  });
+}
+
+export function changeWorkspace(payload) {
+  return request('/api/workspace', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+

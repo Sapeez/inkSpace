@@ -143,6 +143,41 @@ export async function listAttachments(ownerId: string, folderFilter?: string): P
   }));
 }
 
+// WF9: deletes the Storage object before the DB row (same ordering
+// reasoning as `server/services/account.ts`'s cascade — a failed/partial
+// Storage removal would be unrecoverable once the row holding `storage_path`
+// is gone).
+export async function deleteAttachment(attachmentId: string): Promise<void> {
+  const { data, error: attachmentError } = await supabase
+    .from('attachments')
+    .select('storage_path')
+    .eq('id', attachmentId)
+    .maybeSingle();
+
+  // Found in review (same class of bug already fixed in folders.ts's
+  // `checkFolderOwnership`): a real DB error must not be folded into the
+  // same 404 branch as a genuinely missing attachment — `maybeSingle()`
+  // (unlike `.single()`) returns `{ data: null, error: null }` for a
+  // legitimate miss, so `error` truthy here only ever means a real failure.
+  if (attachmentError) {
+    throw Object.assign(new Error(`Could not look up attachment: ${attachmentError.message}`), { status: 500 });
+  }
+  if (!data) {
+    throw Object.assign(new Error(`Attachment not found: ${attachmentId}`), { status: 404 });
+  }
+
+  const bucket = requireBucket();
+  const { error: removeError } = await supabase.storage.from(bucket).remove([(data as { storage_path: string }).storage_path]);
+  if (removeError) {
+    throw Object.assign(new Error(`Could not delete attachment storage object: ${removeError.message}`), { status: 500 });
+  }
+
+  const { error: deleteError } = await supabase.from('attachments').delete().eq('id', attachmentId);
+  if (deleteError) {
+    throw Object.assign(new Error(`Could not delete attachment row: ${deleteError.message}`), { status: 500 });
+  }
+}
+
 export async function downloadAttachment(attachmentId: string): Promise<AttachmentDownload> {
   const { data, error: attachmentError } = await supabase
     .from('attachments')
