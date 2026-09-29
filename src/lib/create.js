@@ -15,14 +15,6 @@ export function createAnnotation(attachmentId, payload) {
   });
 }
 
-// 4.4: grants edit|view access by email (owner only, enforced server-side).
-export function createShare(attachmentId, payload) {
-  return request(`/api/attachments/${encodeURIComponent(attachmentId)}/shares`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-}
-
 // Task 3.2/3.3 (Download & Save): burns the given per-page annotation JSON
 // into a copy of the original PDF and returns it as base64 JSON
 // (`{ filename, mimeType, pdfBase64 }`) — shared by Download (decodes it to

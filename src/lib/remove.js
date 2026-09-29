@@ -16,16 +16,6 @@ export function removeAnnotation(attachmentId, annotationId) {
   );
 }
 
-// 4.4/4.6: revokes a share (owner only, enforced server-side).
-export function removeShare(attachmentId, shareId) {
-  return request(
-    `/api/attachments/${encodeURIComponent(attachmentId)}/shares/${encodeURIComponent(shareId)}`,
-    {
-      method: 'DELETE',
-    }
-  );
-}
-
 // WF4/R3: deleting a folder never deletes the files inside it — enforced
 // server-side (attachments.folder_id `on delete set null`), not just here.
 export function removeFolder(folderId) {

@@ -13,11 +13,10 @@ afterEach(() => {
   cleanup();
 });
 
-function renderToolbar(role: string | undefined) {
+function renderToolbar() {
   return render(
     <Toolbar
       attachmentId="attachment-1"
-      role={role}
       activeTool="pen"
       onToolChange={() => {}}
       style={DEFAULT_ANNOTATION_STYLE}
@@ -27,46 +26,19 @@ function renderToolbar(role: string | undefined) {
       downloading={false}
       downloadError={null}
       onSaveClick={() => {}}
-      onShareClick={() => {}}
     />,
   );
 }
 
-test('P3: an edit-only session sees the full annotation toolbar and Save, but no Share button', () => {
-  renderToolbar('edit');
+// 7.3/7.4: cross-account sharing is cut entirely — every caller who can
+// reach a file is its owner, so there's a single always-editable toolbar,
+// not a role switch.
+test('the toolbar always shows the full annotation toolbar, Save, and Download', () => {
+  renderToolbar();
 
   assert.ok(screen.getByTestId(TEST_IDS.ANNOTATION_TOOLBAR));
   assert.ok(screen.getByTestId(TEST_IDS.SAVE_BUTTON));
-  assert.equal(screen.queryByTestId(TEST_IDS.SHARE_BUTTON), null);
-  assert.equal(screen.queryByTestId(TEST_IDS.NOTES_BUTTON), null);
-});
-
-test('P1: the owner sees the full toolbar, Save, and Share', () => {
-  renderToolbar('owner');
-
-  assert.ok(screen.getByTestId(TEST_IDS.ANNOTATION_TOOLBAR));
-  assert.ok(screen.getByTestId(TEST_IDS.SAVE_BUTTON));
-  assert.ok(screen.getByTestId(TEST_IDS.SHARE_BUTTON));
-});
-
-test('P3/P4: a view-only session has no annotation toolbar or Save button in the DOM, and sees Notes instead', () => {
-  renderToolbar('view');
-
-  assert.equal(screen.queryByTestId(TEST_IDS.ANNOTATION_TOOLBAR), null);
-  assert.equal(screen.queryByTestId(TEST_IDS.SAVE_BUTTON), null);
-  assert.equal(screen.queryByTestId(TEST_IDS.SHARE_BUTTON), null);
-  assert.ok(screen.getByTestId(TEST_IDS.NOTES_BUTTON));
-});
-
-test('Download stays available regardless of role', () => {
-  renderToolbar('view');
   assert.ok(screen.getByTestId(TEST_IDS.DOWNLOAD_BUTTON));
-});
-
-test('defaults to the full toolbar when no role is passed (back-compat)', () => {
-  renderToolbar(undefined);
-  assert.ok(screen.getByTestId(TEST_IDS.ANNOTATION_TOOLBAR));
-  assert.ok(screen.getByTestId(TEST_IDS.SAVE_BUTTON));
 });
 
 // 5.1: pins the shipped annotation toolbar to exactly A1's 11 tools (the 10
@@ -74,8 +46,8 @@ test('defaults to the full toolbar when no role is passed (back-compat)', () => 
 // would mean either a missing required tool or an out-of-scope one (§6: no
 // per-annotation styling control, no notes/comment tool for editors, no
 // cover-page/stamp/callout/redaction tool) slipped into the shipped toolbar.
-test('5.1: the edit toolbar exposes exactly the 11 required tools, in A1\'s required order, and nothing out-of-scope', () => {
-  renderToolbar('edit');
+test('5.1: the toolbar exposes exactly the 11 required tools, in A1\'s required order, and nothing out-of-scope', () => {
+  renderToolbar();
 
   const REQUIRED_TOOL_TEST_IDS = [
     TEST_IDS.TOOL_PEN,
@@ -98,8 +70,6 @@ test('5.1: the edit toolbar exposes exactly the 11 required tools, in A1\'s requ
     REQUIRED_TOOL_TEST_IDS,
   );
 
-  // §6 Out of Scope: no notes/comment control for an editor (view-only-only,
-  // per P4), and only one global style control, not a per-annotation one.
-  assert.equal(screen.queryByTestId(TEST_IDS.NOTES_BUTTON), null);
+  // §6 Out of Scope: only one global style control, not a per-annotation one.
   assert.equal(screen.getAllByTestId(TEST_IDS.STYLE_COLOR_PICKER).length, 1);
 });

@@ -79,9 +79,15 @@ export default function FolderTree({ folders, currentFolderId, onCreate, onRenam
               {node.name}
             </Link>
             <span className="folder-tree-actions">
+              {/* Found in code review: with >1 folder in the tree, a shared
+                  id across every node's own create/rename/delete button made
+                  them ambiguous to any test/tool that queries by test id
+                  (getAllByTestId(...)[0] worked by DOM-order accident, not a
+                  real per-node selector) — suffixed with the folder's own id
+                  so each node's controls are addressable individually. */}
               <button
                 type="button"
-                data-testid="folder-create-button"
+                data-testid={`folder-create-button-${node.id}`}
                 aria-label={`New folder inside ${node.name}`}
                 onClick={() => {
                   setCreatingUnder(node.id);
@@ -92,7 +98,7 @@ export default function FolderTree({ folders, currentFolderId, onCreate, onRenam
               </button>
               <button
                 type="button"
-                data-testid="folder-rename-button"
+                data-testid={`folder-rename-button-${node.id}`}
                 aria-label={`Rename ${node.name}`}
                 onClick={() => {
                   setRenamingId(node.id);
@@ -103,7 +109,7 @@ export default function FolderTree({ folders, currentFolderId, onCreate, onRenam
               </button>
               <button
                 type="button"
-                data-testid="folder-delete-button"
+                data-testid={`folder-delete-button-${node.id}`}
                 aria-label={`Delete ${node.name}`}
                 onClick={() => onDelete(node.id)}
               >

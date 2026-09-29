@@ -7,6 +7,7 @@ import ResetPasswordPage from './ResetPasswordPage.tsx';
 import VerifyEmailPage from './VerifyEmailPage.tsx';
 import SettingsPage from './SettingsPage.tsx';
 import WorkspacePage from '../workspace/WorkspacePage.tsx';
+import WorkspaceSettingsPage from '../workspace/WorkspaceSettingsPage.tsx';
 import { useSession } from '../lib/session.ts';
 
 // EH3 (simplified per tasks-accounts-workspace.md's scope note — no guest
@@ -58,6 +59,14 @@ export default function App() {
         element={
           <RequireSession>
             <SettingsPage />
+          </RequireSession>
+        }
+      />
+      <Route
+        path="/workspace/settings"
+        element={
+          <RequireSession>
+            <WorkspaceSettingsPage />
           </RequireSession>
         }
       />

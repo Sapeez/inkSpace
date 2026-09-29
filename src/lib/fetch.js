@@ -10,11 +10,6 @@ export function fetchAttachments(params = {}) {
   return request(`/api/attachments${query ? `?${query}` : ''}`);
 }
 
-// 4.4/4.6: lists the current shares (P1) for the ShareModal's owner-only view.
-export function fetchShares(attachmentId) {
-  return request(`/api/attachments/${encodeURIComponent(attachmentId)}/shares`);
-}
-
 // WF2: flat list of every folder in the caller's own workspace — the client
 // (FolderTree.tsx) builds the tree from `parentFolderId`.
 export function fetchFolders() {

@@ -7,7 +7,6 @@ import NoAccessState from './NoAccessState.tsx';
 import AnnotationCanvas from '../annotation-canvas/AnnotationCanvas.jsx';
 import ConfirmModal from '../modals/ConfirmModal.jsx';
 import SaveModal from '../modals/SaveModal.tsx';
-import ShareModal from '../modals/ShareModal.tsx';
 import { usePdfDocument } from './usePdfDocument.ts';
 import { DEFAULT_ANNOTATION_STYLE } from '../toolbar/StyleControls.tsx';
 import { burnInAttachment } from '../lib/index.js';
@@ -44,28 +43,8 @@ export default function ViewerPage() {
   // this open, via `onRequestDelete`.
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
-  const [shareModalOpen, setShareModalOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState(null);
-  // P3: hiding the toolbar's tool buttons isn't enough on its own —
-  // AnnotationCanvas.jsx keys its Fabric `isDrawingMode`/pointer-events
-  // entirely off `activeTool` (see `applyActiveTool`), so a view-only
-  // session would otherwise still be able to draw via the default 'pen'
-  // tool even with no button to trigger it. Passing a value that matches no
-  // real tool id makes every one of AnnotationCanvas.jsx's tool-membership
-  // checks false, which fully disables the overlay's pointer-events.
-  //
-  // Found in review: `attachment` is `null` for the entire initial fetch
-  // (`loading` is true), so `attachment?.role !== 'view'` was `true` during
-  // that window regardless of the real role — Toolbar.jsx's own
-  // "undefined role -> full toolbar" back-compat default (kept for
-  // tests/Annotator.test.tsx, which renders Toolbar directly with no role
-  // prop) then applied too, briefly showing edit affordances to a
-  // not-yet-known-to-be-view-only session. `&& !loading` makes this
-  // default-deny instead: no role is treated the same as view-only until
-  // the real one resolves.
-  const canEdit = !loading && attachment?.role !== 'view';
-  const toolbarRole = loading ? 'view' : attachment?.role;
 
   // D1-D3: burns the current annotations into a copy of the original PDF
   // and downloads it under the *original* filename (D3) — never the save
@@ -97,7 +76,6 @@ export default function ViewerPage() {
     <div className="viewer-layout">
       <Toolbar
         attachmentId={attachmentId}
-        role={toolbarRole}
         activeTool={activeTool}
         onToolChange={setActiveTool}
         style={style}
@@ -109,7 +87,6 @@ export default function ViewerPage() {
         downloading={downloading}
         downloadError={downloadError}
         onSaveClick={() => setSaveModalOpen(true)}
-        onShareClick={() => setShareModalOpen(true)}
       />
       <div className="viewer-main">
         <ThumbnailPanel pdfDoc={pdfDoc} />
@@ -130,7 +107,7 @@ export default function ViewerPage() {
         ref={annotationCanvasRef}
         attachmentId={attachmentId}
         pdfDoc={pdfDoc}
-        activeTool={canEdit ? activeTool : null}
+        activeTool={activeTool}
         style={style}
         onRequestDelete={() => setDeleteConfirmOpen(true)}
       />
@@ -156,7 +133,6 @@ export default function ViewerPage() {
         onClose={() => setSaveModalOpen(false)}
         getAnnotations={() => annotationCanvasRef.current?.getAnnotationsForBurnIn() ?? []}
       />
-      <ShareModal open={shareModalOpen} attachmentId={attachmentId} onClose={() => setShareModalOpen(false)} />
     </div>
   );
 }

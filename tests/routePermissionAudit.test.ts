@@ -7,14 +7,15 @@ import { dirname, join } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, '..');
 
-// 5.5: static sweep — every route that mutates an existing attachment or
-// share must be gated by `requirePermission` (permissions.ts's chokepoint,
-// per code-review.md §4.3), so a future route added without it fails this
-// test at review time instead of silently shipping an IDOR. Read as source
-// text, not imported: attachments.js/burn-in.js pull in `pdf-lib`
-// transitively (via storage.ts/burn-in.ts), which isn't installed in this
-// sandbox yet (spec.md §9) — this sweep must still work without it.
-const ROUTE_FILES = ['server/routes/attachments.js', 'server/routes/burn-in.js', 'server/routes/shares.ts'];
+// 5.5: static sweep — every route that mutates an existing attachment must
+// be gated by `requirePermission` (permissions.ts's chokepoint, per
+// code-review.md §4.3), so a future route added without it fails this test
+// at review time instead of silently shipping an IDOR. Read as source text,
+// not imported: attachments.js/burn-in.js pull in `pdf-lib` transitively
+// (via storage.ts/burn-in.ts), which isn't installed in this sandbox yet
+// (spec.md §9) — this sweep must still work without it. `shares.ts` was
+// removed in task 7.2 (cross-account sharing cut entirely).
+const ROUTE_FILES = ['server/routes/attachments.js', 'server/routes/burn-in.js'];
 
 // Matches `router.<method>('<path>', ...middleware, async (req, res...`,
 // capturing everything between the path and the handler so
@@ -62,7 +63,7 @@ test('5.5: ROUTE_CALL_PATTERN sees every router.<method>(...) call site — no r
   }
 });
 
-test('5.5: every non-GET route across attachments/burn-in/shares is gated by requirePermission, except the one documented exception', () => {
+test('5.5: every non-GET route across attachments/burn-in is gated by requirePermission, except the one documented exception', () => {
   for (const file of ROUTE_FILES) {
     const source = readFileSync(join(repoRoot, file), 'utf8');
     let sawAnyMutatingRoute = false;

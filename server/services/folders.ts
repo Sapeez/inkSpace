@@ -121,10 +121,9 @@ export async function deleteFolder(workspaceId: string, folderId: string): Promi
 }
 
 // WF3: moves a file into a folder, or back to the top level when `folderId`
-// is null. Restricted to the attachment's actual owner (`isOwner`, the same
-// check `server/routes/shares.ts` uses) — reorganizing a workspace's own
-// folder structure isn't something a share recipient should be able to do
-// even if they can view/edit the file itself.
+// is null. Restricted to the attachment's actual owner (`isOwner`) — there
+// is no share/grant model for folders or files (WF5), so this is the same
+// owner-only check used everywhere else in this single-owner model.
 export async function moveAttachment(workspaceId: string, attachmentId: string, folderId: string | null): Promise<void> {
   const owns = await isOwner(workspaceId, attachmentId);
   if (!owns) throw httpError(403, 'Permission denied');

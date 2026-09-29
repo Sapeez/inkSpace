@@ -96,24 +96,8 @@ export const TEST_IDS = {
   DELETE_CONFIRM_BUTTON: 'delete-confirm-button',
   DELETE_CANCEL_BUTTON: 'delete-cancel-button',
 
-  // ── Permissions & sharing (PRD P1–P5) ────────────────────────────────────
-  SHARE_BUTTON: 'share-button',
-  SHARE_MODAL: 'share-modal',
-  SHARE_MODAL_CLOSE_BUTTON: 'share-modal-close-button',
-  SHARE_EMAIL_INPUT: 'share-email-input',
-  SHARE_ROLE_SELECT: 'share-role-select',
-  SHARE_CONFIRM_BUTTON: 'share-confirm-button',
-  SHARE_FORM_ERROR: 'share-form-error',
-  SHARE_LIST: 'share-list',
-  SHARE_LIST_ITEM: 'share-list-item',
-  SHARE_LIST_ERROR: 'share-list-error',
-  SHARE_REVOKE_BUTTON: 'share-revoke-button',
+  // ── Permissions (single-owner model, task 7.0) ────────────────────────────
   EMPTY_STATE: 'empty-state',
-  NOTES_BUTTON: 'notes-button',
-  NOTES_PANEL: 'notes-panel',
-  NOTES_PANEL_INPUT: 'notes-panel-input',
-  NOTES_PANEL_ADD_BUTTON: 'notes-panel-add-button',
-  NOTES_PANEL_ITEM: 'notes-panel-item',
 
   // ── User settings (accounts-workspace PRD US1–US5, task 3.0) ─────────────
   SETTINGS_PAGE: 'settings-page',
@@ -170,12 +154,15 @@ export const TEST_IDS = {
   BREADCRUMB_ITEM: 'breadcrumb-item',
   FOLDER_TREE: 'folder-tree',
   FOLDER_TREE_ITEM: 'folder-tree-item',
+  // FOLDER_CREATE_BUTTON is the top-level "+ New folder" trigger only — each
+  // node's own create/rename/delete buttons are per-node ids (see the
+  // folderCreateButtonTestId/folderRenameButtonTestId/folderDeleteButtonTestId
+  // builders below), not this flat string, since a tree with >1 folder
+  // renders one of each per node.
   FOLDER_CREATE_BUTTON: 'folder-create-button',
   FOLDER_CREATE_INPUT: 'folder-create-input',
   FOLDER_CREATE_CONFIRM_BUTTON: 'folder-create-confirm-button',
-  FOLDER_RENAME_BUTTON: 'folder-rename-button',
   FOLDER_RENAME_INPUT: 'folder-rename-input',
-  FOLDER_DELETE_BUTTON: 'folder-delete-button',
   SEARCH_BAR: 'search-bar',
   SEARCH_INPUT: 'search-input',
   WORKSPACE_EMPTY_FILES: 'workspace-empty-files',
@@ -186,7 +173,33 @@ export const TEST_IDS = {
   WORKSPACE_DELETE_CONFIRM_BUTTON: 'workspace-delete-confirm-button',
   WORKSPACE_DELETE_CANCEL_BUTTON: 'workspace-delete-cancel-button',
   WORKSPACE_DELETE_ERROR: 'workspace-delete-error',
+
+  // ── Workspace settings (accounts-workspace PRD WC1–WC3, task 6.0) ────────
+  WORKSPACE_SETTINGS_LINK: 'workspace-settings-link',
+  WORKSPACE_SETTINGS_PAGE: 'workspace-settings-page',
+  WORKSPACE_SETTINGS_BACK_LINK: 'workspace-settings-back-link',
+  WORKSPACE_SETTINGS_FORM: 'workspace-settings-form',
+  WORKSPACE_SETTINGS_DISPLAY_NAME_INPUT: 'workspace-settings-display-name-input',
+  WORKSPACE_SETTINGS_SAVE_BUTTON: 'workspace-settings-save-button',
+  WORKSPACE_SETTINGS_ERROR: 'workspace-settings-error',
+  WORKSPACE_SETTINGS_SUCCESS: 'workspace-settings-success',
+  WORKSPACE_SETTINGS_LOAD_ERROR: 'workspace-settings-load-error',
+  WORKSPACE_SETTINGS_DELETE_BUTTON: 'workspace-settings-delete-button',
+  WORKSPACE_SETTINGS_DELETE_MODAL: 'workspace-settings-delete-modal',
+  WORKSPACE_SETTINGS_DELETE_MODAL_TITLE: 'workspace-settings-delete-modal-title',
+  WORKSPACE_SETTINGS_DELETE_MODAL_MESSAGE: 'workspace-settings-delete-modal-message',
+  WORKSPACE_SETTINGS_DELETE_CONFIRM_BUTTON: 'workspace-settings-delete-confirm-button',
+  WORKSPACE_SETTINGS_DELETE_CANCEL_BUTTON: 'workspace-settings-delete-cancel-button',
+  WORKSPACE_SETTINGS_DELETE_ERROR: 'workspace-settings-delete-error',
 } as const;
+
+// Per-node FolderTree.tsx action buttons (found in code review: a shared,
+// un-suffixed id across every node in a multi-folder tree was ambiguous —
+// getAllByTestId(...)[0] only worked by DOM-order accident). Build the id
+// the same way FolderTree.tsx itself does, from the folder's own id.
+export const folderCreateButtonTestId = (folderId: string): string => `folder-create-button-${folderId}`;
+export const folderRenameButtonTestId = (folderId: string): string => `folder-rename-button-${folderId}`;
+export const folderDeleteButtonTestId = (folderId: string): string => `folder-delete-button-${folderId}`;
 
 export const TEXT_CONTENT = {
   DELETE_MODAL_TITLE: 'Delete annotation?',
@@ -213,10 +226,6 @@ export const ITEM_FIELD_NAMES = {
   OWNER: 'owner',
   MIME_TYPE: 'mimeType',
   WORKSPACE_ID: 'workspaceId',
-  ROLE: 'role',
-  GRANTEE_EMAIL: 'granteeEmail',
-  GRANTED_BY: 'grantedBy',
-  GRANTED_AT: 'grantedAt',
 } as const;
 
 export type ItemFieldNames = typeof ITEM_FIELD_NAMES;

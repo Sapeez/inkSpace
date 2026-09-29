@@ -109,44 +109,6 @@ export type Database = {
           },
         ]
       }
-      shares: {
-        Row: {
-          attachment_id: string
-          granted_at: string
-          granted_by: string
-          grantee_email: string
-          grantee_user_id: string | null
-          id: string
-          role: Database["public"]["Enums"]["share_role"]
-        }
-        Insert: {
-          attachment_id: string
-          granted_at?: string
-          granted_by: string
-          grantee_email: string
-          grantee_user_id?: string | null
-          id?: string
-          role?: Database["public"]["Enums"]["share_role"]
-        }
-        Update: {
-          attachment_id?: string
-          granted_at?: string
-          granted_by?: string
-          grantee_email?: string
-          grantee_user_id?: string | null
-          id?: string
-          role?: Database["public"]["Enums"]["share_role"]
-        }
-        Relationships: [
-          {
-            foreignKeyName: "shares_attachment_id_fkey"
-            columns: ["attachment_id"]
-            isOneToOne: false
-            referencedRelation: "attachments"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       workspaces: {
         Row: {
           created_at: string
@@ -176,7 +138,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      share_role: "edit" | "view"
+      [_ in never]: never
     }
     CompositeTypes: {
       [_ in never]: never
@@ -303,8 +265,6 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {
-      share_role: ["edit", "view"],
-    },
+    Enums: {},
   },
 } as const

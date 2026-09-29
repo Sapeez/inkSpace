@@ -94,17 +94,31 @@ export default function WorkspacePage({ auth = getSupabaseClient().auth }: Works
   const loadFiles = useCallback(async () => {
     const fetched = (await fetchAttachments({ folderId: currentFolderId ?? 'root' })) as WorkspaceAttachment[];
     setFiles(fetched);
-    if (!currentFolderId) {
-      setAllFiles(fetched);
-    }
   }, [currentFolderId]);
+
+  // WF7/WF11: unlike `files` (scoped to whichever folder is currently open),
+  // this is every attachment in the caller's workspace regardless of folder
+  // — `fetchAttachments({})` applies no `folderId` filter server-side (see
+  // storage.ts's `listAttachments`). Recent (root-only display, but the
+  // files it lists shouldn't be limited to unfiled ones) and the search bar
+  // (must search the whole workspace, not just the folder you're browsing —
+  // found in code review, previously `allFiles` was actually just the
+  // root-level list under a misleading name) both need the true full list.
+  const loadAllFiles = useCallback(async () => {
+    const fetched = (await fetchAttachments({})) as WorkspaceAttachment[];
+    setAllFiles(fetched);
+  }, []);
+
+  const refreshFiles = useCallback(async () => {
+    await Promise.all([loadFiles(), loadAllFiles()]);
+  }, [loadFiles, loadAllFiles]);
 
   useEffect(() => {
     setLoadError(null);
-    Promise.all([loadFolders(), loadFiles()]).catch((err) => {
+    Promise.all([loadFolders(), refreshFiles()]).catch((err) => {
       setLoadError(err instanceof Error ? err.message : 'Could not load your workspace.');
     });
-  }, [loadFolders, loadFiles]);
+  }, [loadFolders, refreshFiles]);
 
   async function handleLogout() {
     await auth.signOut();
@@ -134,7 +148,7 @@ export default function WorkspacePage({ auth = getSupabaseClient().auth }: Works
       if (currentFolderId && isCreatedAttachment(created)) {
         await moveAttachmentToFolder(created.id, currentFolderId);
       }
-      await loadFiles();
+      await refreshFiles();
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Upload failed. Please try again.');
     } finally {
@@ -160,7 +174,7 @@ export default function WorkspacePage({ auth = getSupabaseClient().auth }: Works
 
   async function handleFileMove(attachmentId: string, folderId: string | null) {
     await moveAttachmentToFolder(attachmentId, folderId);
-    await loadFiles();
+    await refreshFiles();
   }
 
   function requestFileDelete(attachmentId: string) {
@@ -175,14 +189,14 @@ export default function WorkspacePage({ auth = getSupabaseClient().auth }: Works
     try {
       if (pendingDelete.kind === 'file') {
         await removeAttachment(pendingDelete.id);
-        await loadFiles();
+        await refreshFiles();
       } else {
         await removeFolder(pendingDelete.id);
         await loadFolders();
         if (pendingDelete.id === currentFolderId) {
           navigate('/workspace');
         } else {
-          await loadFiles();
+          await refreshFiles();
         }
       }
       setPendingDelete(null);
@@ -201,10 +215,14 @@ export default function WorkspacePage({ auth = getSupabaseClient().auth }: Works
     setDeleteError(null);
   }
 
+  // WF11: search is workspace-wide, not scoped to whichever folder happens
+  // to be open — found in code review: this previously filtered `files`
+  // (the current folder's own list), so searching from inside a folder
+  // could never surface a match that lived elsewhere in the workspace.
   const visibleFiles =
     searchQuery.trim().length === 0
       ? files
-      : files.filter((file) => file.filename.toLowerCase().includes(searchQuery.trim().toLowerCase()));
+      : allFiles.filter((file) => file.filename.toLowerCase().includes(searchQuery.trim().toLowerCase()));
 
   return (
     <main className="workspace-page" data-testid="workspace-page">
@@ -212,6 +230,9 @@ export default function WorkspacePage({ auth = getSupabaseClient().auth }: Works
         <span data-testid="workspace-user-email">{session?.user.email}</span>
         <Link to="/settings" data-testid="settings-link">
           Settings
+        </Link>
+        <Link to="/workspace/settings" data-testid="workspace-settings-link">
+          Workspace settings
         </Link>
         <button type="button" className="auth-submit-button" data-testid="logout-button" onClick={handleLogout}>
           Log out

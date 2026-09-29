@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requirePermission, canRead, canWrite, isOwner, getAttachmentRole } from '../middleware/permissions.js';
+import { requirePermission, canRead, canWrite, isOwner } from '../middleware/permissions.js';
 import { saveAttachment, downloadAttachment, listAttachments, deleteAttachment } from '../services/storage.js';
 import { validateFilename } from '../../src/utils/filenameUtils.js';
 import { MAX_UPLOAD_BYTES, formatMegabytes } from '../../src/utils/uploadLimits.js';
@@ -22,16 +22,13 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// P3/P4: `role` drives ViewerPage.jsx's tool visibility — computed here
-// (rather than trusted from anywhere client-supplied) since `requirePermission`
-// has already confirmed the caller has at least read access by this point.
+// 7.3/7.4: single-owner model — `requirePermission(canRead)` has already
+// confirmed the caller owns this attachment, so there's no per-caller role
+// left to compute or return.
 router.get('/:id', requirePermission(canRead), async (req, res, next) => {
   try {
-    const [data, role] = await Promise.all([
-      downloadAttachment(req.params.id),
-      getAttachmentRole(req.userId, req.params.id),
-    ]);
-    res.json({ ...data, role });
+    const data = await downloadAttachment(req.params.id);
+    res.json(data);
   } catch (err) {
     next(err);
   }
@@ -75,9 +72,8 @@ router.patch('/:id', requirePermission(canWrite), async (_req, res) => {
   res.status(501).json({ message: 'Not implemented' });
 });
 
-// WF9: owner-only, not `canWrite` — an edit-shared collaborator can annotate
-// a file but shouldn't be able to permanently remove it from the owner's
-// workspace. `isOwner` fails closed (403), matching `shares.ts`'s own gate.
+// WF9: owner-only, not `canWrite` — `isOwner` fails closed (403) rather than
+// deferring to the route's own 404, since there's no follow-up lookup here.
 router.delete('/:id', requirePermission(isOwner), async (req, res, next) => {
   try {
     await deleteAttachment(req.params.id);

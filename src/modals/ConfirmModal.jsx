@@ -8,6 +8,11 @@
 // same §4.8 "disabled visibly, stay open on failure" pattern SaveModal.tsx
 // already follows — without changing behavior for a caller that never
 // passes them (a fire-and-forget confirm like delete-annotation).
+// `confirmDisabled` overrides `disabled` for the Confirm button only,
+// falling back to `disabled` when unset — for a caller that needs Confirm
+// gated on something Cancel shouldn't be blocked by (e.g. WorkspaceSettingsPage's
+// delete-workspace confirmation, gated on a background counts fetch the user
+// should still be able to back out of immediately).
 export default function ConfirmModal({
   open,
   title,
@@ -15,6 +20,7 @@ export default function ConfirmModal({
   onConfirm,
   onCancel,
   disabled = false,
+  confirmDisabled = disabled,
   error,
   testId,
   titleTestId,
@@ -37,7 +43,9 @@ export default function ConfirmModal({
         )}
         <div className="modal-actions">
           <button type="button" onClick={onCancel} disabled={disabled} data-testid={cancelTestId}>Cancel</button>
-          <button type="button" onClick={onConfirm} disabled={disabled} data-testid={confirmTestId}>Confirm</button>
+          <button type="button" onClick={onConfirm} disabled={confirmDisabled} data-testid={confirmTestId}>
+            Confirm
+          </button>
         </div>
       </div>
     </div>

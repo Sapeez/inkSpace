@@ -5,7 +5,6 @@ import { requireAuth } from './middleware/requireAuth.js';
 import authRouter from './routes/auth.js';
 import attachmentsRouter from './routes/attachments.js';
 import burnInRouter from './routes/burn-in.js';
-import sharesRouter from './routes/shares.js';
 import accountRouter from './routes/account.js';
 import workspaceRouter from './routes/workspace.js';
 import foldersRouter from './routes/folders.js';
@@ -38,11 +37,6 @@ app.use('/api', requireAuth);
 
 app.use('/api/attachments', attachmentsRouter);
 app.use('/api/burn-in', burnInRouter);
-// 4.4: owner-only grant/list/revoke of shares — mounted with its own
-// `:attachmentId` param (mergeParams in shares.ts) rather than nested inside
-// attachmentsRouter, per the file split in tasks/tasks-pdf-editor.md's
-// Relevant Files.
-app.use('/api/attachments/:attachmentId/shares', sharesRouter);
 // accounts-workspace tasks 3.0/4.0: account (cascading delete), workspace
 // (display name), and folder CRUD/move — every handler in these three
 // routers reads identity off `req.userId`, set by the global `requireAuth`

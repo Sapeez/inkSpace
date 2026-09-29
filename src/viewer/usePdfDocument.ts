@@ -7,18 +7,15 @@ import { fetchAttachment } from '../lib/index.js';
 GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
 // Mirrors AttachmentDownload in server/services/storage.ts until the client and
-// server share generated types (typescript-standard.md §2.7). `role` (P3/P4)
-// is added by attachments.js's GET /:id handler, not by downloadAttachment
-// itself — see server/routes/attachments.js.
-export type AttachmentRole = 'owner' | 'edit' | 'view';
-
+// server share generated types (typescript-standard.md §2.7). 7.3/7.4:
+// single-owner model — anyone who can reach a file at all is its owner, so
+// there's no per-caller role left to carry here.
 interface AttachmentDownload {
   id: string;
   filename: string;
   mimeType: string;
   pageCount: number | null;
   url: string;
-  role: AttachmentRole;
 }
 
 function isAttachmentDownload(value: unknown): value is AttachmentDownload {

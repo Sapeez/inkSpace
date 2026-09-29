@@ -46,126 +46,6 @@ async function startApp(app: express.Express): Promise<{ baseUrl: string; server
 }
 
 test(
-  '4.5/4.11/Risk R4: the shares endpoints reject unauthenticated and non-owner callers with the right status',
-  { skip: !HAS_CREDS && 'requires STORAGE_BUCKET, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, VITE_SUPABASE_ANON_KEY' },
-  async (t) => {
-    const bucket = BUCKET as string;
-    const storagePath = `scratch-tests/permissions-api-${randomUUID()}.pdf`;
-
-    const owner = await createTestSession();
-    const stranger = await createTestSession();
-
-    const upload = await supabase.storage
-      .from(bucket)
-      .upload(storagePath, Buffer.from('%PDF-1.4 test fixture'), { contentType: 'application/pdf' });
-    assert.equal(upload.error, null);
-
-    const insert = await supabase
-      .from('attachments')
-      .insert({
-        owner_id: owner.userId,
-        filename: 'permissions-api-test.pdf',
-        storage_path: storagePath,
-        mime_type: 'application/pdf',
-        byte_size: 21,
-        page_count: 1,
-      })
-      .select('id')
-      .single();
-    assert.equal(insert.error, null);
-    const attachmentId = insert.data.id as string;
-
-    const { default: sharesRouter } = await import('../server/routes/shares.js');
-    const app = express();
-    app.use(express.json());
-    app.use('/api/attachments/:attachmentId/shares', requireAuth, sharesRouter);
-    const { baseUrl, server } = await startApp(app);
-
-    try {
-      await t.test('unauthenticated request to the shares list gets 401, not a silent empty list', async () => {
-        const response = await fetch(`${baseUrl}/api/attachments/${attachmentId}/shares`);
-        assert.equal(response.status, 401);
-        const body = await response.json();
-        assert.equal(body.message, 'Authentication required');
-      });
-
-      await t.test('a non-owner GET/POST to shares gets 403, not 404', async () => {
-        const getResponse = await fetch(`${baseUrl}/api/attachments/${attachmentId}/shares`, {
-          headers: authHeader(stranger.accessToken),
-        });
-        assert.equal(getResponse.status, 403);
-
-        const postResponse = await fetch(`${baseUrl}/api/attachments/${attachmentId}/shares`, {
-          method: 'POST',
-          headers: { ...authHeader(stranger.accessToken), 'content-type': 'application/json' },
-          body: JSON.stringify({ email: 'someone@example.com', role: 'view' }),
-        });
-        assert.equal(postResponse.status, 403);
-      });
-
-      let shareId = '';
-
-      await t.test('the owner can grant a share over real HTTP, without leaking the grantee\'s real user id', async () => {
-        const response = await fetch(`${baseUrl}/api/attachments/${attachmentId}/shares`, {
-          method: 'POST',
-          headers: { ...authHeader(owner.accessToken), 'content-type': 'application/json' },
-          body: JSON.stringify({ email: `share-target-${randomUUID()}@example.com`, role: 'view' }),
-        });
-        assert.equal(response.status, 201);
-        const body = await response.json();
-        shareId = body.id;
-        assert.equal(body.role, 'view');
-        // Found in review: the grantee's raw auth.users UUID must never
-        // reach the browser — another user's UUID is information the caller
-        // has no reason to see, even now that identity is a verified JWT
-        // rather than a client-supplied header.
-        assert.equal('granteeUserId' in body, false);
-        assert.equal('grantee_user_id' in body, false);
-        assert.equal('grantedBy' in body, false);
-      });
-
-      await t.test('the shares list also never includes the grantee\'s real user id', async () => {
-        const response = await fetch(`${baseUrl}/api/attachments/${attachmentId}/shares`, {
-          headers: authHeader(owner.accessToken),
-        });
-        assert.equal(response.status, 200);
-        const body = await response.json();
-        assert.ok(Array.isArray(body) && body.length > 0);
-        for (const share of body) {
-          assert.equal('granteeUserId' in share, false);
-          assert.equal('grantee_user_id' in share, false);
-          assert.equal('grantedBy' in share, false);
-        }
-      });
-
-      await t.test('a non-owner cannot revoke a share', async () => {
-        const response = await fetch(`${baseUrl}/api/attachments/${attachmentId}/shares/${shareId}`, {
-          method: 'DELETE',
-          headers: authHeader(stranger.accessToken),
-        });
-        assert.equal(response.status, 403);
-      });
-
-      await t.test('an invalid grant body is rejected with 400, not silently accepted', async () => {
-        const response = await fetch(`${baseUrl}/api/attachments/${attachmentId}/shares`, {
-          method: 'POST',
-          headers: { ...authHeader(owner.accessToken), 'content-type': 'application/json' },
-          body: JSON.stringify({ email: 'not-an-email', role: 'view' }),
-        });
-        assert.equal(response.status, 400);
-      });
-    } finally {
-      server.close();
-      await supabase.from('shares').delete().eq('attachment_id', attachmentId);
-      await supabase.from('attachments').delete().eq('id', attachmentId);
-      await supabase.storage.from(bucket).remove([storagePath]);
-      await owner.cleanup();
-      await stranger.cleanup();
-    }
-  },
-);
-
-test(
   '4.5/Risk R4: burn-in and the attachment fetch reject a non-edit caller with 403/401 over real HTTP',
   { skip: !HAS_CREDS && 'requires STORAGE_BUCKET, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, VITE_SUPABASE_ANON_KEY' },
   async (t) => {
@@ -225,7 +105,7 @@ test(
         assert.equal(response.status, 401);
       });
 
-      await t.test('a view-only (no share at all) caller gets 403 from burn-in, not 200', async () => {
+      await t.test('a stranger gets 403 from burn-in, not 200', async () => {
         const response = await fetch(`${baseUrl}/api/burn-in/${attachmentId}`, {
           method: 'POST',
           headers: { ...authHeader(stranger.accessToken), 'content-type': 'application/json' },
@@ -234,7 +114,7 @@ test(
         assert.equal(response.status, 403);
       });
 
-      await t.test('a non-owner/non-shared caller gets 403 from the attachment fetch, not 404', async () => {
+      await t.test('a non-owner caller gets 403 from the attachment fetch, not 404', async () => {
         const response = await fetch(`${baseUrl}/api/attachments/${attachmentId}`, {
           headers: authHeader(stranger.accessToken),
         });

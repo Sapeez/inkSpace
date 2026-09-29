@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import 'dotenv/config';
-import { canRead, canWrite, isOwner, getAttachmentRole } from '../server/middleware/permissions.js';
+import { canRead, canWrite, isOwner } from '../server/middleware/permissions.js';
 import { supabase } from '../server/lib/supabaseClient.js';
 
 const OWNER_ID = process.env.TEST_OWNER_USER_ID;
@@ -10,7 +10,7 @@ const BUCKET = process.env.STORAGE_BUCKET;
 const CAN_RUN = Boolean(OWNER_ID && BUCKET && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 test(
-  'permissions middleware enforces ownership and shares against a real attachment',
+  'permissions middleware enforces owner-only access against a real attachment',
   { skip: !CAN_RUN && 'requires TEST_OWNER_USER_ID, STORAGE_BUCKET, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY' },
   async (t) => {
     const ownerId = OWNER_ID as string;
@@ -43,7 +43,7 @@ test(
         assert.equal(await canWrite(ownerId, attachmentId), true);
       });
 
-      await t.test('an unrelated user with no share is denied read and write', async () => {
+      await t.test('an unrelated user is denied read and write', async () => {
         const stranger = randomUUID();
         assert.equal(await canRead(stranger, attachmentId), false);
         assert.equal(await canWrite(stranger, attachmentId), false);
@@ -64,12 +64,6 @@ test(
         assert.equal(await isOwner(randomUUID(), attachmentId), false);
         assert.equal(await isOwner(ownerId, 'not-a-real-uuid'), false);
         assert.equal(await isOwner(ownerId, randomUUID()), false);
-      });
-
-      await t.test('4.3/4.7: getAttachmentRole reports owner/none correctly', async () => {
-        assert.equal(await getAttachmentRole(ownerId, attachmentId), 'owner');
-        assert.equal(await getAttachmentRole(randomUUID(), attachmentId), 'none');
-        assert.equal(await getAttachmentRole(ownerId, 'not-a-real-uuid'), 'none');
       });
     } finally {
       await supabase.from('attachments').delete().eq('id', attachmentId);

@@ -156,6 +156,102 @@ test(
 );
 
 test(
+  'WF3/WF5: a stranger cannot move another user\'s attachment, into their own folder or anywhere else',
+  { skip: !HAS_CREDS && 'requires STORAGE_BUCKET, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, VITE_SUPABASE_ANON_KEY' },
+  async (t) => {
+    const bucket = process.env.STORAGE_BUCKET as string;
+    const owner: TestSession = await createTestSession();
+    const stranger: TestSession = await createTestSession();
+    const storagePath = `scratch-tests/move-file-${randomUUID()}.pdf`;
+
+    const upload = await supabase.storage
+      .from(bucket)
+      .upload(storagePath, Buffer.from('%PDF-1.4 test fixture'), { contentType: 'application/pdf' });
+    assert.equal(upload.error, null);
+
+    const insert = await supabase
+      .from('attachments')
+      .insert({
+        owner_id: owner.userId,
+        filename: 'move-file-test.pdf',
+        storage_path: storagePath,
+        mime_type: 'application/pdf',
+        byte_size: 21,
+        page_count: 1,
+      })
+      .select('id')
+      .single();
+    assert.equal(insert.error, null);
+    const attachmentId = insert.data.id as string;
+
+    const strangerFolder = await supabase
+      .from('folders')
+      .insert({ workspace_id: stranger.userId, name: 'Stranger Folder' })
+      .select('id')
+      .single();
+    assert.equal(strangerFolder.error, null);
+    const strangerFolderId = strangerFolder.data.id as string;
+
+    const app = express();
+    app.use(express.json());
+    app.use('/api', requireAuth);
+    app.use('/api/folders', foldersRouter);
+    const { baseUrl, server } = await startApp(app);
+
+    try {
+      await t.test('a stranger cannot move the owner\'s attachment into their own folder — 403, and it stays unfiled', async () => {
+        const response = await fetch(`${baseUrl}/api/folders/move-file/${attachmentId}`, {
+          method: 'PATCH',
+          headers: { ...authHeader(stranger.accessToken), 'content-type': 'application/json' },
+          body: JSON.stringify({ folderId: strangerFolderId }),
+        });
+        assert.equal(response.status, 403);
+
+        const { data } = await supabase.from('attachments').select('folder_id').eq('id', attachmentId).single();
+        assert.equal(data?.folder_id, null);
+      });
+
+      await t.test('unauthenticated move-file gets 401', async () => {
+        const response = await fetch(`${baseUrl}/api/folders/move-file/${attachmentId}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ folderId: null }),
+        });
+        assert.equal(response.status, 401);
+      });
+
+      await t.test('the owner can move their own attachment', async () => {
+        const ownerFolder = await supabase
+          .from('folders')
+          .insert({ workspace_id: owner.userId, name: 'Owner Folder' })
+          .select('id')
+          .single();
+        assert.equal(ownerFolder.error, null);
+
+        const response = await fetch(`${baseUrl}/api/folders/move-file/${attachmentId}`, {
+          method: 'PATCH',
+          headers: { ...authHeader(owner.accessToken), 'content-type': 'application/json' },
+          body: JSON.stringify({ folderId: ownerFolder.data.id }),
+        });
+        assert.equal(response.status, 204);
+
+        const { data } = await supabase.from('attachments').select('folder_id').eq('id', attachmentId).single();
+        assert.equal(data?.folder_id, ownerFolder.data.id);
+
+        await supabase.from('folders').delete().eq('id', ownerFolder.data.id as string);
+      });
+    } finally {
+      server.close();
+      await supabase.from('attachments').delete().eq('id', attachmentId);
+      await supabase.storage.from(bucket).remove([storagePath]);
+      await supabase.from('folders').delete().eq('id', strangerFolderId);
+      await owner.cleanup();
+      await stranger.cleanup();
+    }
+  },
+);
+
+test(
   '4.6/4.8: /api/attachments listing is scoped to the caller\'s own workspace only',
   { skip: !HAS_CREDS && 'requires STORAGE_BUCKET, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, VITE_SUPABASE_ANON_KEY' },
   async (t) => {

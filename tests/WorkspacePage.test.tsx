@@ -1,7 +1,7 @@
 import test, { afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupJsdom } from './setup/jsdom';
-import { TEST_IDS } from './consts/inkSpace';
+import { TEST_IDS, folderDeleteButtonTestId } from './consts/inkSpace';
 
 setupJsdom();
 
@@ -208,6 +208,33 @@ test('WF11: the search bar filters the visible files client-side', async () => {
   });
 });
 
+test('WF11: search is workspace-wide, not scoped to the folder currently being browsed', async () => {
+  installFakeApi({
+    folders: [{ id: 'folder-1', name: 'Reports', parentFolderId: null, createdAt: NOW, updatedAt: NOW }],
+    attachments: [
+      { id: 'a1', filename: 'invoice.pdf', mimeType: 'application/pdf', pageCount: 1, folderId: null, createdAt: NOW, updatedAt: NOW },
+      { id: 'a2', filename: 'inside-folder.pdf', mimeType: 'application/pdf', pageCount: 1, folderId: 'folder-1', createdAt: NOW, updatedAt: NOW },
+    ],
+  });
+  renderWorkspacePage('/workspace/folders/folder-1');
+
+  await waitFor(() => {
+    assert.equal(screen.getAllByTestId(TEST_IDS.FILE_GRID_ITEM).length, 1);
+    assert.equal(screen.getByTestId(TEST_IDS.FILE_GRID_ITEM_NAME).textContent, 'inside-folder.pdf');
+  });
+
+  // Searching for a file that lives at the top level, while still browsing
+  // inside "Reports", must still surface it — a folder-scoped search would
+  // wrongly show zero results here.
+  fireEvent.change(screen.getByTestId(TEST_IDS.SEARCH_INPUT), { target: { value: 'invoice' } });
+
+  await waitFor(() => {
+    const items = screen.getAllByTestId(TEST_IDS.FILE_GRID_ITEM);
+    assert.equal(items.length, 1);
+    assert.equal(within(items[0] as HTMLElement).getByTestId(TEST_IDS.FILE_GRID_ITEM_NAME).textContent, 'invoice.pdf');
+  });
+});
+
 test('§4.4/WF9: deleting a file from the grid requires confirmation before it disappears', async () => {
   installFakeApi({
     attachments: [{ id: 'a1', filename: 'report.pdf', mimeType: 'application/pdf', pageCount: 1, folderId: null, createdAt: NOW, updatedAt: NOW }],
@@ -248,8 +275,8 @@ test('§4.4/WF4: deleting a folder from the sidebar also requires confirmation',
   });
   renderWorkspacePage();
 
-  await waitFor(() => screen.getByTestId(TEST_IDS.FOLDER_DELETE_BUTTON));
-  fireEvent.click(screen.getByTestId(TEST_IDS.FOLDER_DELETE_BUTTON));
+  await waitFor(() => screen.getByTestId(folderDeleteButtonTestId('f1')));
+  fireEvent.click(screen.getByTestId(folderDeleteButtonTestId('f1')));
 
   assert.ok(screen.getByTestId(TEST_IDS.WORKSPACE_DELETE_CONFIRM_MODAL));
   assert.match(screen.getByTestId(TEST_IDS.WORKSPACE_DELETE_CONFIRM_MESSAGE).textContent ?? '', /Contracts/);
@@ -257,7 +284,7 @@ test('§4.4/WF4: deleting a folder from the sidebar also requires confirmation',
   fireEvent.click(screen.getByTestId(TEST_IDS.WORKSPACE_DELETE_CONFIRM_BUTTON));
 
   await waitFor(() => {
-    assert.equal(screen.queryByTestId(TEST_IDS.FOLDER_DELETE_BUTTON), null);
+    assert.equal(screen.queryByTestId(folderDeleteButtonTestId('f1')), null);
   });
 });
 

@@ -12,7 +12,6 @@ import {
 } from './toolbarIcons.tsx';
 import StyleControls from './StyleControls.tsx';
 import SignatureUploader from '../annotation-canvas/SignatureUploader.tsx';
-import NotesPanel from '../viewer/NotesPanel.tsx';
 
 // Fixed left-to-right order per requirement A1 — do not reorder. Ellipse is
 // the default *shape* tool (Rectangle/Line/Arrow are its siblings, not
@@ -35,17 +34,12 @@ const TOOLS = [
   { id: 'polygon', label: 'Polygon', testId: 'tool-polygon', Icon: PolygonIcon },
 ];
 
-// P3/P4: `role` (owner|edit|view, from ViewerPage.jsx's usePdfDocument
-// attachment fetch) gates the annotation tools, style controls, and Save
-// button — view-only sessions get the Notes control (NotesPanel.tsx)
-// instead. `role` defaults to editable (`undefined` !== 'view') so existing
-// callers that don't pass it yet (tests/Annotator.test.tsx's Harness) keep
-// today's full-toolbar behavior; this is purely a display gate — the
-// server independently rejects any edit/save/burn-in a view-only caller
-// attempts directly (code-review.md §4.3).
+// 7.3/7.4: cross-account sharing (and the edit/view/owner role split it
+// required) is cut entirely — every caller who can reach a file is its
+// owner, so there's a single always-editable toolbar now, not a role
+// switch. No Share button, no view-only Notes substitute.
 export default function Toolbar({
   attachmentId,
-  role,
   activeTool,
   onToolChange,
   style,
@@ -55,33 +49,27 @@ export default function Toolbar({
   downloading,
   downloadError,
   onSaveClick,
-  onShareClick,
 }) {
-  const canEdit = role !== 'view';
-  const isOwner = role === 'owner';
-
   return (
     <header className="toolbar" role="group" aria-label="Toolbar" data-testid="toolbar">
       <span className="toolbar-attachment">Attachment: {attachmentId}</span>
-      {canEdit && (
-        <div className="toolbar-tools" role="toolbar" aria-label="Annotation tools" data-testid="annotation-toolbar">
-          {TOOLS.map(({ id, label, testId, Icon }) => (
-            <button
-              key={id}
-              type="button"
-              className="toolbar-tool-button"
-              data-testid={testId}
-              aria-label={label}
-              aria-pressed={activeTool === id}
-              onClick={() => onToolChange(id)}
-            >
-              <Icon />
-            </button>
-          ))}
-          <SignatureUploader onPlace={onSignaturePlace} />
-        </div>
-      )}
-      {canEdit && <StyleControls style={style} onStyleChange={onStyleChange} />}
+      <div className="toolbar-tools" role="toolbar" aria-label="Annotation tools" data-testid="annotation-toolbar">
+        {TOOLS.map(({ id, label, testId, Icon }) => (
+          <button
+            key={id}
+            type="button"
+            className="toolbar-tool-button"
+            data-testid={testId}
+            aria-label={label}
+            aria-pressed={activeTool === id}
+            onClick={() => onToolChange(id)}
+          >
+            <Icon />
+          </button>
+        ))}
+        <SignatureUploader onPlace={onSignaturePlace} />
+      </div>
+      <StyleControls style={style} onStyleChange={onStyleChange} />
       <div className="toolbar-actions">
         {downloadError && (
           <span className="toolbar-action-error" role="alert" data-testid="download-error">
@@ -97,17 +85,9 @@ export default function Toolbar({
         >
           {downloading ? 'Downloading…' : 'Download'}
         </button>
-        {canEdit && (
-          <button type="button" className="toolbar-action-button" data-testid="save-button" onClick={onSaveClick}>
-            Save
-          </button>
-        )}
-        {isOwner && (
-          <button type="button" className="toolbar-action-button" data-testid="share-button" onClick={onShareClick}>
-            Share
-          </button>
-        )}
-        {!canEdit && <NotesPanel />}
+        <button type="button" className="toolbar-action-button" data-testid="save-button" onClick={onSaveClick}>
+          Save
+        </button>
       </div>
     </header>
   );
