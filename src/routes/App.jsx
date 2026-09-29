@@ -5,6 +5,7 @@ import SignupPage from './SignupPage.tsx';
 import ForgotPasswordPage from './ForgotPasswordPage.tsx';
 import ResetPasswordPage from './ResetPasswordPage.tsx';
 import VerifyEmailPage from './VerifyEmailPage.tsx';
+import SettingsPage from './SettingsPage.tsx';
 import WorkspacePage from '../workspace/WorkspacePage.tsx';
 import { useSession } from '../lib/session.ts';
 
@@ -41,6 +42,14 @@ export default function App() {
         element={
           <RequireSession>
             <WorkspacePage />
+          </RequireSession>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <RequireSession>
+            <SettingsPage />
           </RequireSession>
         }
       />

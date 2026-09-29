@@ -16,6 +16,7 @@ export const TEST_IDS = {
   LOGIN_FORGOT_PASSWORD_LINK: 'login-forgot-password-link',
   LOGOUT_BUTTON: 'logout-button',
   WORKSPACE_USER_EMAIL: 'workspace-user-email',
+  SETTINGS_LINK: 'settings-link',
 
   // ── Password reset & email verification (accounts-workspace PRD PR/EV, task 2.0) ─
   FORGOT_PASSWORD_FORM: 'forgot-password-form',
@@ -113,6 +114,35 @@ export const TEST_IDS = {
   NOTES_PANEL_INPUT: 'notes-panel-input',
   NOTES_PANEL_ADD_BUTTON: 'notes-panel-add-button',
   NOTES_PANEL_ITEM: 'notes-panel-item',
+
+  // ── User settings (accounts-workspace PRD US1–US5, task 3.0) ─────────────
+  SETTINGS_PAGE: 'settings-page',
+  SETTINGS_BACK_LINK: 'settings-back-link',
+  SETTINGS_PROFILE_FORM: 'settings-profile-form',
+  SETTINGS_DISPLAY_NAME_INPUT: 'settings-display-name-input',
+  SETTINGS_PROFILE_SAVE_BUTTON: 'settings-profile-save-button',
+  SETTINGS_PROFILE_ERROR: 'settings-profile-error',
+  SETTINGS_PROFILE_SUCCESS: 'settings-profile-success',
+  SETTINGS_EMAIL_FORM: 'settings-email-form',
+  SETTINGS_EMAIL_INPUT: 'settings-email-input',
+  SETTINGS_EMAIL_SAVE_BUTTON: 'settings-email-save-button',
+  SETTINGS_EMAIL_ERROR: 'settings-email-error',
+  SETTINGS_EMAIL_SUCCESS: 'settings-email-success',
+  SETTINGS_PASSWORD_FORM: 'settings-password-form',
+  SETTINGS_NEW_PASSWORD_INPUT: 'settings-new-password-input',
+  SETTINGS_CONFIRM_PASSWORD_INPUT: 'settings-confirm-password-input',
+  SETTINGS_PASSWORD_SAVE_BUTTON: 'settings-password-save-button',
+  SETTINGS_PASSWORD_ERROR: 'settings-password-error',
+  SETTINGS_PASSWORD_SUCCESS: 'settings-password-success',
+  SETTINGS_IDENTITIES_LIST: 'settings-identities-list',
+  SETTINGS_IDENTITY_ITEM: 'settings-identity-item',
+  SETTINGS_DELETE_ACCOUNT_BUTTON: 'settings-delete-account-button',
+  SETTINGS_DELETE_ACCOUNT_ERROR: 'settings-delete-account-error',
+  DELETE_ACCOUNT_MODAL: 'delete-account-modal',
+  DELETE_ACCOUNT_MODAL_TITLE: 'delete-account-modal-title',
+  DELETE_ACCOUNT_MODAL_MESSAGE: 'delete-account-modal-message',
+  DELETE_ACCOUNT_CONFIRM_BUTTON: 'delete-account-confirm-button',
+  DELETE_ACCOUNT_CANCEL_BUTTON: 'delete-account-cancel-button',
 } as const;
 
 export const TEXT_CONTENT = {
@@ -121,6 +151,9 @@ export const TEXT_CONTENT = {
   VALIDATION_REQUIRED: 'Required field',
   VALIDATION_MAX_LENGTH: '255 characters maximum',
   VALIDATION_INVALID_CHARS: 'Invalid characters',
+  DELETE_ACCOUNT_MODAL_TITLE: 'Delete your account?',
+  DELETE_ACCOUNT_MODAL_MESSAGE:
+    'This permanently deletes your account, your workspace, and every file in it. This cannot be undone.',
 } as const;
 
 /**

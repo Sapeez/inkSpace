@@ -6,6 +6,9 @@ import authRouter from './routes/auth.js';
 import attachmentsRouter from './routes/attachments.js';
 import burnInRouter from './routes/burn-in.js';
 import sharesRouter from './routes/shares.js';
+import accountRouter from './routes/account.js';
+import workspaceRouter from './routes/workspace.js';
+import foldersRouter from './routes/folders.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
@@ -40,6 +43,13 @@ app.use('/api/burn-in', burnInRouter);
 // attachmentsRouter, per the file split in tasks/tasks-pdf-editor.md's
 // Relevant Files.
 app.use('/api/attachments/:attachmentId/shares', sharesRouter);
+// accounts-workspace tasks 3.0/4.0: account (cascading delete), workspace
+// (display name), and folder CRUD/move — every handler in these three
+// routers reads identity off `req.userId`, set by the global `requireAuth`
+// above, never from a route param.
+app.use('/api/account', accountRouter);
+app.use('/api/workspace', workspaceRouter);
+app.use('/api/folders', foldersRouter);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

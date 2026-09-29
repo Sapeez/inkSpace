@@ -675,7 +675,11 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   / `tests/LoginPage.test.tsx` cover the equivalent component-level behavior instead. Task 2.5's planned
   `tests/integration/auth/password-reset-verification.spec.ts` was skipped for the identical reason;
   `tests/ForgotPasswordPage.test.tsx` / `tests/ResetPasswordPage.test.tsx` / `tests/VerifyEmailPage.test.tsx`
-  cover PR1–PR3/EV1/EV3 at the component level instead.
+  cover PR1–PR3/EV1/EV3 at the component level instead. Same for task 3.7's planned
+  `tests/integration/settings/account-settings.spec.ts` (US1–US5) — not created for the identical
+  `@playwright/test` install blocker; `tests/SettingsPage.test.tsx` covers US1–US5 at the component
+  level, and `tests/account.test.ts`/`tests/account.api.test.ts` cover the cascade and the
+  own-account-only route boundary at the HTTP/service level instead.
 - **The P4 notes control is session-only, not persisted** — see §4's `NotesPanel.tsx` note. Revisit if
   a future PRD update wants notes to survive a reload.
 - **`npm run supabase:migrate` (task 4.2) wasn't run this session** — blocked by this environment's
