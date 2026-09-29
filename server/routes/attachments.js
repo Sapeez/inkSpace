@@ -1,10 +1,26 @@
 import { Router } from 'express';
 import { requirePermission, canRead, canWrite, getAttachmentRole } from '../middleware/permissions.js';
-import { saveAttachment, downloadAttachment } from '../services/storage.js';
+import { saveAttachment, downloadAttachment, listAttachments } from '../services/storage.js';
 import { validateFilename } from '../../src/utils/filenameUtils.js';
 import { MAX_UPLOAD_BYTES, formatMegabytes } from '../../src/utils/uploadLimits.js';
 
 const router = Router();
+
+// WF1/4.6: scoped to `req.userId` unconditionally — there is no
+// cross-account listing path, and no share-based listing either (WF5: no
+// grant model for folders/workspace browsing, unlike the per-file `shares`
+// table). `?folderId=<uuid>` scopes to one folder, `?folderId=root` to the
+// top level only, and omitting it returns every attachment in the caller's
+// own workspace (used by Recent/search, WF7/WF11).
+router.get('/', async (req, res, next) => {
+  try {
+    const { folderId } = req.query;
+    const attachments = await listAttachments(req.userId, typeof folderId === 'string' ? folderId : undefined);
+    res.json(attachments);
+  } catch (err) {
+    next(err);
+  }
+});
 
 // P3/P4: `role` drives ViewerPage.jsx's tool visibility — computed here
 // (rather than trusted from anywhere client-supplied) since `requirePermission`

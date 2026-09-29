@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { PDFDocument } from 'pdf-lib';
 import { supabase } from '../lib/supabaseClient.js';
+import type { Database } from '../../src/lib/database.types.js';
 
 // Hand-maintained until `supabase gen types` is run for this table (typescript-standard.md §2.7).
 interface AttachmentRow {
@@ -9,6 +10,21 @@ interface AttachmentRow {
   storage_path: string;
   mime_type: string;
   page_count: number | null;
+}
+
+type AttachmentListRow = Pick<
+  Database['public']['Tables']['attachments']['Row'],
+  'id' | 'filename' | 'mime_type' | 'page_count' | 'folder_id' | 'created_at' | 'updated_at'
+>;
+
+export interface AttachmentSummary {
+  id: string;
+  filename: string;
+  mimeType: string;
+  pageCount: number | null;
+  folderId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface AttachmentDownload {
@@ -89,6 +105,42 @@ export async function saveAttachment({ ownerId, filename, pdfBase64 }: SaveAttac
     pageCount: row.page_count,
     createdAt: row.created_at,
   };
+}
+
+// WF1: scoped to `ownerId` unconditionally — there is no admin/cross-account
+// path that lists another workspace's attachments. `folderFilter === 'root'`
+// lists only unfiled (top-level) attachments; a specific folder id scopes to
+// that folder; omitting it entirely returns every attachment in the caller's
+// workspace regardless of folder, which is what `RecentSection.tsx` (WF7)
+// and the search bar (WF11) need — the folder-scoped grid/list view is the
+// one that passes `folderFilter`.
+export async function listAttachments(ownerId: string, folderFilter?: string): Promise<AttachmentSummary[]> {
+  let query = supabase
+    .from('attachments')
+    .select('id, filename, mime_type, page_count, folder_id, created_at, updated_at')
+    .eq('owner_id', ownerId)
+    .order('updated_at', { ascending: false });
+
+  if (folderFilter === 'root') {
+    query = query.is('folder_id', null);
+  } else if (folderFilter) {
+    query = query.eq('folder_id', folderFilter);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    throw Object.assign(new Error(`Could not list attachments: ${error.message}`), { status: 500 });
+  }
+
+  return (data as AttachmentListRow[]).map((row) => ({
+    id: row.id,
+    filename: row.filename,
+    mimeType: row.mime_type,
+    pageCount: row.page_count,
+    folderId: row.folder_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
 }
 
 export async function downloadAttachment(attachmentId: string): Promise<AttachmentDownload> {

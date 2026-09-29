@@ -688,11 +688,25 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   Download/Save against a real attachment.
 - **`package.json`'s `test` script lists explicit globs per directory, not a recursive one** — extended
   in accounts-workspace task 1.0 to also cover `server/middleware/*.test.ts`, `server/lib/*.test.ts`, and
-  `server/routes/*.test.ts` (colocated tests now exist in all three). It deliberately does **not** yet
-  include `server/services/*.test.ts`, because no file matches that glob today — an unmatched glob is
-  passed through to `node` as a literal string by the shell `npm` invokes, which then fails to find it
-  and errors out the whole run. Whoever adds the first `server/services/*.test.ts` file (tasks 3.0/4.0
-  both plan to) must add that glob to `package.json` in the same change.
+  `server/routes/*.test.ts` (colocated tests now exist in all three). It deliberately does **not**
+  include `server/services/*.test.ts`: task 4.0's new `workspaces.ts`/`folders.ts`/`account.ts` services
+  are tested from `tests/*.test.ts` instead (`tests/workspaces.test.ts`, `tests/folders.test.ts`),
+  matching the existing `permissions.test.ts`/`shares.test.ts` convention of testing server logic
+  directly from `tests/` rather than colocating — already covered by the `tests/*.test.ts` glob, so no
+  `server/services/*.test.ts` file exists and none of this script needs to change.
+- **Task 4.0's new scratch-user-heavy tests (`tests/workspaces.test.ts`, `tests/folders.test.ts`,
+  `tests/workspaceFolders.api.test.ts`) made a pre-existing `tests/shares.test.ts` flakiness visible** —
+  `resolveUserIdByEmail` (`server/services/users.ts`) swallows any `supabase.auth.admin.listUsers()`
+  error and returns `null` (documented above as "no email filter, doesn't scale past 1000 users"). It
+  also has no resilience to the Admin API's own rate limiting. `node --test` runs test files in parallel
+  by default; task 4.0 added ~9 more concurrent `createTestSession`/`cleanup` (admin `createUser`/
+  `deleteUser`) calls across 3 new files, and `tests/shares.test.ts`'s own `resolveUserIdByEmail` call now
+  intermittently fails (confirmed: passes 100% in isolation, ~25% failure rate as part of the full `npm
+  test` run) — almost certainly Admin-API rate-limiting under the added concurrent load, not a logic bug
+  in anything task 4.0 touched. Not fixed here: `shares.ts`/`users.ts` are deleted outright in task 7.2 of
+  this same list once cross-account sharing is cut, so hardening `resolveUserIdByEmail` now would be
+  wasted work. If task 7 is delayed, revisit — e.g. retry-with-backoff in `resolveUserIdByEmail`, or
+  `--test-concurrency` tuning.
   and approximates curved paths' raw bounding box from listed path coordinates rather than true bezier
   extents** — see §3.4's burn-in note. None of these are required by A1–A9; all are documented
   approximations, not silent bugs.
