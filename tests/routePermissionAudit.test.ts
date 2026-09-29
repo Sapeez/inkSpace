@@ -39,11 +39,12 @@ const ROUTE_CALL_PATTERN = /router\.(get|post|patch|put|delete)\(\s*'([^']*)'\s*
 const LOOSE_ROUTE_CALL_PATTERN = /router\.(get|post|patch|put|delete)\(/g;
 
 // The one documented, intentional exception: creating a brand-new attachment
-// row, always owned by the caller (`ownerId`, read from the request's own
-// `x-user-id` header and checked inline) — this never mutates an existing
-// resource, so there is no other attachment's permission to check. See this
-// route's own comment in attachments.js and spec.md §3.4's "always owned by
-// whoever saves them" note.
+// row, always owned by the caller (`ownerId`, read from `req.userId` — set by
+// the `requireAuth` middleware mounted ahead of every `/api` route in
+// server/index.js, task 1.7) — this never mutates an existing resource, so
+// there is no other attachment's permission to check. See this route's own
+// comment in attachments.js and spec.md §3.4's "always owned by whoever
+// saves them" note.
 const EXEMPT = new Set(['server/routes/attachments.js:post:/']);
 
 test('5.5: ROUTE_CALL_PATTERN sees every router.<method>(...) call site — no route shape has drifted out from under it', () => {

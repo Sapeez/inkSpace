@@ -6,14 +6,6 @@ import { MAX_UPLOAD_BYTES, formatMegabytes } from '../../src/utils/uploadLimits.
 
 const router = Router();
 
-// `ownerId` (from the `x-user-id` stub) flows straight into a Supabase
-// Storage object key in `saveAttachment` — validating it's UUID-shaped here
-// (matching the `attachments.owner_id uuid` column it's also inserted as)
-// keeps an unvalidated client-supplied header value from reaching a storage
-// key at all, rather than relying only on the DB insert's constraint to
-// reject it after the fact.
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 // P3/P4: `role` drives ViewerPage.jsx's tool visibility — computed here
 // (rather than trusted from anywhere client-supplied) since `requirePermission`
 // has already confirmed the caller has at least read access by this point.
@@ -37,11 +29,9 @@ router.get('/:id', requirePermission(canRead), async (req, res, next) => {
 // burn-in").
 router.post('/', async (req, res, next) => {
   try {
-    const ownerId = req.headers['x-user-id'];
-    if (!ownerId || typeof ownerId !== 'string' || !UUID_PATTERN.test(ownerId)) {
-      return res.status(401).json({ message: 'Authentication required' });
-    }
-
+    // 1.7: `requireAuth` (mounted ahead of every `/api` route) has already
+    // verified the caller and set `req.userId` to their real `auth.users` id.
+    const ownerId = req.userId;
     const { filename, pdfBase64 } = req.body;
     if (typeof filename !== 'string' || typeof pdfBase64 !== 'string') {
       return res.status(400).json({ message: 'filename and pdfBase64 are required' });

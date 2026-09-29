@@ -96,12 +96,21 @@ function firstParam(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
+// 1.7: identity comes only from `req.userId`, set by `requireAuth` (a
+// verified Supabase JWT) mounted ahead of every `/api` route in
+// `server/index.js` — this no longer reads any client-supplied header itself.
 export function requirePermission(checkFn: PermissionCheck) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const userIdHeader = req.headers['x-user-id'];
+    const userId = (req as PermissionedRequest).userId;
     const attachmentId = firstParam(req.params.attachmentId) ?? firstParam(req.params.id);
 
-    if (typeof userIdHeader !== 'string' || userIdHeader.length === 0) {
+    // Found in review: today this is only ever unset if a route reaches here
+    // without `requireAuth` having run first, which shouldn't happen given
+    // `server/index.js`'s mount order — but that safety would otherwise live
+    // entirely in mount ordering, not in this chokepoint itself. Guarding it
+    // here too means a future misordered router fails with a diagnostic 401
+    // instead of silently falling through to `checkFn(undefined, ...)`.
+    if (!userId) {
       res.status(401).json({ message: 'Authentication required' });
       return;
     }
@@ -110,13 +119,12 @@ export function requirePermission(checkFn: PermissionCheck) {
       return;
     }
 
-    const allowed = await checkFn(userIdHeader, attachmentId);
+    const allowed = await checkFn(userId, attachmentId);
     if (!allowed) {
       res.status(403).json({ message: 'Permission denied' });
       return;
     }
 
-    (req as PermissionedRequest).userId = userIdHeader;
     next();
   };
 }

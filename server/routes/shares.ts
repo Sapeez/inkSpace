@@ -18,13 +18,12 @@ function attachmentIdOf(req: Request): string {
 }
 
 // Found in review: `Share` (services/shares.ts) carries `granteeUserId`/
-// `grantedBy` — real `auth.users` UUIDs. Given identity here is still the
-// `x-user-id` header stub (permissions.ts), leaking another user's UUID to
-// the browser is not cosmetic — anyone who reads it out of this response can
-// set it as their own `x-user-id` (src/lib/currentUser.ts) and be treated as
-// that user on every other route. Never send `Share` itself to the client;
-// only this narrowed shape, which the owner already has enough context to
-// use (their own request, an email they typed, and the role they picked).
+// `grantedBy` — real `auth.users` UUIDs. Even now that identity is a verified
+// Supabase JWT (`requireAuth`, task 1.7) rather than a client-supplied
+// header, another user's UUID is still information they have no reason to
+// see. Never send `Share` itself to the client; only this narrowed shape,
+// which the owner already has enough context to use (their own request, an
+// email they typed, and the role they picked).
 interface ClientShare {
   id: string;
   granteeEmail: string;

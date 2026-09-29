@@ -1,4 +1,22 @@
 export const TEST_IDS = {
+  // ── Auth (accounts-workspace PRD SU/LG, task 1.0) ────────────────────────
+  SIGNUP_FORM: 'signup-form',
+  SIGNUP_EMAIL_INPUT: 'signup-email-input',
+  SIGNUP_PASSWORD_INPUT: 'signup-password-input',
+  SIGNUP_SUBMIT_BUTTON: 'signup-submit-button',
+  SIGNUP_ERROR: 'signup-error',
+  SIGNUP_INFO: 'signup-info',
+  SIGNUP_LOGIN_LINK: 'signup-login-link',
+  LOGIN_FORM: 'login-form',
+  LOGIN_EMAIL_INPUT: 'login-email-input',
+  LOGIN_PASSWORD_INPUT: 'login-password-input',
+  LOGIN_SUBMIT_BUTTON: 'login-submit-button',
+  LOGIN_ERROR: 'login-error',
+  LOGIN_SIGNUP_LINK: 'login-signup-link',
+  LOGIN_FORGOT_PASSWORD_LINK: 'login-forgot-password-link',
+  LOGOUT_BUTTON: 'logout-button',
+  WORKSPACE_USER_EMAIL: 'workspace-user-email',
+
   // ── Viewer (PRD V1–V8) ────────────────────────────────────────────────────
   PDF_VIEWER: 'pdf-viewer',
   LOADING_INDICATOR: 'pdf-loading-indicator',

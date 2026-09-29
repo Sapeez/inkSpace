@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import { requireAuth } from './middleware/requireAuth.js';
+import authRouter from './routes/auth.js';
 import attachmentsRouter from './routes/attachments.js';
 import burnInRouter from './routes/burn-in.js';
 import sharesRouter from './routes/shares.js';
@@ -20,6 +22,16 @@ app.use(express.json({ limit: '20mb' }));
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
+
+// Mounted before the global `requireAuth` gate below: logging in is, by
+// definition, something an unauthenticated caller must be able to do (LG5).
+app.use('/api/auth', authRouter);
+
+// 1.7: every other `/api` route requires a verified Supabase session — there
+// is no public read anywhere in this API. Mounted once here rather than
+// per-route so new routers (folders/workspace/account, tasks 3–4) get it for
+// free.
+app.use('/api', requireAuth);
 
 app.use('/api/attachments', attachmentsRouter);
 app.use('/api/burn-in', burnInRouter);

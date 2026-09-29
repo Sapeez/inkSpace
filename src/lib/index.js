@@ -3,3 +3,4 @@ export * from './fetch.js';
 export * from './create.js';
 export * from './change.js';
 export * from './remove.js';
+export * from './authApi.js';

@@ -2,10 +2,11 @@
 
 Source of truth: `pdf_editor_prd.pdf` (external, not checked into this repo) → distilled into
 `tasks/tasks-pdf-editor.md`. This document is the living spec derived from both, kept in sync with
-actual behavior as each task lands. It covers the PDF Editor feature only — the separate
-accounts/workspace track (`tasks/tasks-accounts-workspace.md`) is out of scope here; none of it is
-built yet, and this document assumes the pre-existing attachment/permission model it will eventually
-replace.
+actual behavior as each task lands. It covers the PDF Editor feature primarily — the separate
+accounts/workspace track (`tasks/tasks-accounts-workspace.md`) has its own scope, but per that task
+list's own per-sub-task loop, this document is updated in place wherever accounts-workspace work
+changes or resolves something documented here (starting with task 1.0's replacement of the `x-user-id`
+stub — see §4/§9). Track accounts-workspace's own UI/workspace/folders scope in its task list, not here.
 
 ## 1. Goal
 
@@ -481,25 +482,33 @@ Default-deny: access exists only via an explicit grant.
   attachment fetch fails with 401/403/404, `ViewerPage.jsx` renders `NoAccessState` instead of the
   toolbar/viewer/etc. entirely (P5), rather than showing the generic error string inside the normal
   layout the way any other fetch failure does.
-- `src/lib/http.js`'s `request()` now attaches `.status` to the `Error` it throws on a non-2xx response
-  (needed for the `accessDenied` check above), and, on the client, attaches an `x-user-id` header read
-  from `src/lib/currentUser.ts` — see the known-gap note below.
+- `src/lib/http.ts`'s `request()` (converted from `http.js` in accounts-workspace task 1.7) attaches
+  `.status` to the `Error` it throws on a non-2xx response (needed for the `accessDenied` check above),
+  and, on the client, attaches `Authorization: Bearer <access_token>` read from `src/lib/session.ts`'s
+  `getAccessToken()` — see the resolved-gap note below.
 
-**Current implementation gap:** `server/middleware/permissions.ts` implements the read/write/burn-in/
-owner/role checks against the `shares` table correctly, but every route still identifies the caller from
-a client-supplied `x-user-id` header (`requirePermission` in `server/middleware/permissions.ts`), not a
-verified Supabase JWT. Until real auth lands (tracked as task 1.6 in `tasks/tasks-accounts-workspace.md`),
-P1–P5 are enforceable in test/dev but **not safe against a malicious client**, which can simply send
-someone else's user id. Treat this as the bar to build to, not the current guarantee — flag it in any
-security review until closed.
+**Resolved (accounts-workspace task 1.7):** `server/middleware/permissions.ts`'s `requirePermission` no
+longer reads any client-supplied header. Identity now comes from `req.userId`, set by
+`server/middleware/requireAuth.ts` — mounted ahead of every `/api/*` route in `server/index.js` (except
+`/api/auth/*`, which must be reachable unauthenticated) — which verifies the caller's bearer token
+against Supabase Auth itself (`supabase.auth.getUser(token)`, a real round-trip, not just decoding the
+JWT locally) before anything downstream runs. `src/lib/currentUser.ts` (the client-side half of the old
+stub, localStorage-backed) was deleted wholesale, not migrated, per its own comment's instruction;
+`src/routes/LoginPage.tsx`/`SignupPage.tsx` (task 1.4/1.5) are the real login/signup UI it was standing
+in for. P1–P5 are now enforced against a real verified identity, not a value the client can simply set.
+Sharing itself (the `shares` table, grant-by-email, edit/view roles) is unchanged by this — that's cut
+entirely in a later phase of `tasks/tasks-accounts-workspace.md` (task 7.0), not narrowed here.
 
-**New client-side half of that same stub:** before task 4.0, the browser never sent `x-user-id` at all
-(every attachment fetch would have 401'd against the real server). `src/lib/currentUser.ts` adds a
-localStorage-backed `getCurrentUserId`/`setCurrentUserId` so a manual tester can act as different users
-(owner vs. a share recipient) across tabs/reloads without a real login flow, and `http.js` sends it on
-every request. This is explicitly scoped as "just enough to exercise P1–P5 by hand and in tests" — it is
-not a login UI, has no signup, and should be deleted wholesale (not extended) once `requireAuth`/a
-verified Supabase JWT lands.
+Two things task 1.0 deliberately did **not** attempt to verify live, both worth flagging in the next
+security/product review of the accounts-workspace feature:
+- **EV2** ("an unverified account can still log in and use its own workspace with no gate anywhere")
+  depends on the Supabase project's own Auth setting for whether `signUp`/`signInWithPassword` issue a
+  session before the email is confirmed. `SignupPage.tsx`/`LoginPage.tsx` handle both outcomes in code
+  (a null `session` after signup shows a "check your email" notice instead of erroring), but nobody
+  confirmed live which behavior this project's dashboard is actually configured for.
+- **Google sign-in (SU2/LG2) and its auto-linking edge case (SU4/R1) were dropped from scope entirely**,
+  by explicit decision recorded in `tasks/tasks-accounts-workspace.md` task 1.1 — not deferred, not a
+  gap. Email/password is the only sign-in method.
 
 ## 5. Edge Cases
 
@@ -581,20 +590,48 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 
 ## 9. Known Gaps to Track Until Closed
 
-- **Auth is a stub, not a security boundary yet** — see §4. Do not treat P1–P5 as satisfied until
-  `requirePermission` reads identity from a verified Supabase JWT instead of `x-user-id`. As of task
-  4.0 the client also has a matching localStorage-backed identity stub (`src/lib/currentUser.ts`) — it
-  needs to be deleted, not migrated, when real auth lands.
+- **Resolved: auth is a real security boundary now** — `tasks/tasks-accounts-workspace.md` task 1.0
+  replaced the `x-user-id` stub end-to-end (see §4). `src/lib/currentUser.ts` was deleted, not migrated.
+  Two residual items from that task are tracked in §4's own note rather than duplicated here: whether
+  this Supabase project's email-confirmation setting actually satisfies EV2, and the login rate limiter's
+  architecture (next bullet).
+- **Login rate limiting (LG5) is a UX-layer throttle, not the authoritative control — flagged in security
+  review.** `LoginPage.tsx` calls `POST /api/auth/login-attempt` (`server/routes/auth.ts` +
+  `server/lib/authRateLimit.ts`, an in-memory sliding window keyed by `${ip}:${email}`) *before*
+  `supabase.auth.signInWithPassword`, because the actual password check happens client-side, directly
+  against Supabase Auth's own REST API using the public anon key — this server never sees a password, by
+  design. That also means nothing *requires* a caller to hit `/api/auth/login-attempt` at all: a scripted
+  credential-stuffing attempt that calls Supabase Auth's token endpoint directly, skipping this app's
+  endpoint entirely, is completely unthrottled by this repo's own code. The real backstop against that is
+  Supabase Auth's own built-in abuse protection, not this endpoint — treat `authRateLimit.ts` as a UX
+  nicety (a fast, specific "too many attempts" message for the normal case) layered on top of Supabase's
+  own control, not a replacement for it. A consequence of the design even for a well-behaved client: the
+  limiter counts every attempt through the gate, not just failed ones, since this server never learns
+  whether the login that followed actually succeeded. It's also in-memory/single-instance only (documented
+  in `authRateLimit.ts`'s own comment) — a multi-instance deployment would need a shared store instead.
+  **Before deploying behind any reverse proxy** (Railway/Render/Fly.io per `agents/skills/deployment.md`),
+  `server/index.js` needs `app.set('trust proxy', <hop count>)` set to the actual number of proxy hops for
+  the chosen platform — without it, `req.ip` (used as half of the rate-limit key) reflects the proxy's own
+  address, not the real client, which can fragment a single attacker's attempts across buckets or collapse
+  distinct users into one. This wasn't set during task 1.0 because the actual deployment target (and so the
+  correct hop count) isn't chosen yet; setting it to a guessed value would risk being wrong in the other
+  direction (trusting a spoofable header). Tracked as a pre-deployment checklist item, not closed here.
 - **Email→user-id resolution doesn't scale and has no backfill** — `resolveUserIdByEmail` pages through
   `supabase.auth.admin.listUsers()` (no email filter exists on that API) and stops at 1000 users; and a
   share granted to an email that doesn't have an account yet is stored but grants nothing until some
   future step re-resolves it — no such step exists. Replace both once accounts-workspace adds a
   `profiles` table.
-- **No Playwright/integration-test coverage for P1–P5 (or anything else in this task list)** —
-  `@playwright/test` isn't installed and none of `tests/fixtures/testFixtures`, `BasePage`, or
-  `tests/integration/` exist yet in this repo, blocked by the same npm-registry access issue as
-  `pdf-lib` below. `tests/permissions.api.test.ts` covers the same P1–P5/R4 403/401 requirements at the
-  HTTP level with `node --test` instead.
+- **No Playwright/integration-test coverage for P1–P5, or for accounts-workspace task 1.0's auth flows**
+  — `@playwright/test` still isn't installed and none of `tests/fixtures/testFixtures`, `BasePage`, or
+  `tests/integration/` exist yet in this repo. The blocker has narrowed slightly since this was last
+  written: `npm view @playwright/test version` now succeeds (metadata/registry access works), but
+  `npm install --save-dev @playwright/test` still fails with `ETIMEDOUT` fetching the actual
+  `playwright-core` tarball — so the install itself remains blocked in this environment, just later in
+  the process than before. `tests/permissions.api.test.ts` covers the same P1–P5/R4 403/401 requirements
+  at the HTTP level with `node --test` instead; accounts-workspace task 1.11's planned
+  `tests/integration/auth/signup-login.spec.ts` was **not created** for the same reason — writing a
+  Playwright spec file with no way to run it would be dead weight, not coverage. `tests/SignupPage.test.tsx`
+  / `tests/LoginPage.test.tsx` cover the equivalent component-level behavior instead.
 - **The P4 notes control is session-only, not persisted** — see §4's `NotesPanel.tsx` note. Revisit if
   a future PRD update wants notes to survive a reload.
 - **`npm run supabase:migrate` (task 4.2) wasn't run this session** — blocked by this environment's
@@ -605,7 +642,13 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   and reviewed but have never been run against a real PDF. Do not treat burn-in as verified until someone
   with real registry access runs `npm install pdf-lib` and re-runs the full test suite plus a real
   Download/Save against a real attachment.
-- **Burn-in does not reproduce Fabric object rotation, uses a fixed Helvetica font for all burned text,
+- **`package.json`'s `test` script lists explicit globs per directory, not a recursive one** — extended
+  in accounts-workspace task 1.0 to also cover `server/middleware/*.test.ts`, `server/lib/*.test.ts`, and
+  `server/routes/*.test.ts` (colocated tests now exist in all three). It deliberately does **not** yet
+  include `server/services/*.test.ts`, because no file matches that glob today — an unmatched glob is
+  passed through to `node` as a literal string by the shell `npm` invokes, which then fails to find it
+  and errors out the whole run. Whoever adds the first `server/services/*.test.ts` file (tasks 3.0/4.0
+  both plan to) must add that glob to `package.json` in the same change.
   and approximates curved paths' raw bounding box from listed path coordinates rather than true bezier
   extents** — see §3.4's burn-in note. None of these are required by A1–A9; all are documented
   approximations, not silent bugs.

@@ -9,6 +9,20 @@ export interface AnnotationBurnInPage {
   objects: unknown[];
 }
 
+// `burnInAttachment` (src/lib/create.js) goes through `request()`, which is
+// generic over an untyped-JS call site — narrow its `unknown` result here
+// rather than widen `request()`'s own typing (typescript-standard.md §2.4
+// "validate at the boundary").
+interface BurnInResult {
+  filename: string;
+  mimeType: string;
+  pdfBase64: string;
+}
+
+function isBurnInResult(value: unknown): value is BurnInResult {
+  return typeof value === 'object' && value !== null && typeof (value as { pdfBase64?: unknown }).pdfBase64 === 'string';
+}
+
 interface SaveModalProps {
   open: boolean;
   attachmentId: string;
@@ -79,7 +93,11 @@ export default function SaveModal({ open, attachmentId, originalFilename, onClos
     setSizeError(null);
     try {
       const pages = getAnnotations();
-      const burned = await burnInAttachment(attachmentId, pages);
+      const burnInResponse: unknown = await burnInAttachment(attachmentId, pages);
+      if (!isBurnInResult(burnInResponse)) {
+        throw new Error('Unexpected burn-in response shape');
+      }
+      const burned = burnInResponse;
 
       // Instant-feedback half of the size check (5.3) — the authoritative
       // check is server-side, in attachments.js's POST / — but failing here
