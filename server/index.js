@@ -10,7 +10,7 @@ import workspaceRouter from './routes/workspace.js';
 import foldersRouter from './routes/folders.js';
 
 const app = express();
-const PORT = Number(process.env.PORT) || 3001;
+const PORT = Number(process.env.PORT) || 3002;
 
 app.use(cors());
 // Burn-in (task 3.2) and save (task 3.3) both carry a full PDF as base64 JSON
