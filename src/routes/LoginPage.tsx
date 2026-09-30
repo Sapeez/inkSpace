@@ -69,49 +69,52 @@ export default function LoginPage({ auth = getSupabaseClient().auth }: LoginPage
   }
 
   return (
-    <main className="auth-page">
-      <div className="auth-card">
-        <h1>Log in</h1>
-        <form className="auth-form" data-testid="login-form" onSubmit={handleSubmit}>
-          <label className="auth-field">
-            Email
+    <main className="auth-page login-page">
+      <div className="login-card">
+        <h1 className="login-title">Welcome</h1>
+        <p className="login-subtitle">Sign in to your account</p>
+        <form className="login-form" data-testid="login-form" onSubmit={handleSubmit}>
+          <div className="login-field">
             <input
+              id="login-email"
               type="email"
-              className="auth-input"
+              className="login-input"
               data-testid="login-email-input"
+              placeholder="Email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               disabled={submitting}
               autoComplete="email"
             />
-          </label>
-          <label className="auth-field">
-            Password
+            <label htmlFor="login-email" className="login-label">Email</label>
+          </div>
+          <div className="login-field">
             <input
+              id="login-password"
               type="password"
-              className="auth-input"
+              className="login-input"
               data-testid="login-password-input"
+              placeholder="Password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               disabled={submitting}
               autoComplete="current-password"
             />
-          </label>
+            <label htmlFor="login-password" className="login-label">Password</label>
+          </div>
           {error && (
-            <span className="auth-error" role="alert" data-testid="login-error">
+            <span className="login-error" role="alert" data-testid="login-error">
               {error}
             </span>
           )}
-          <button type="submit" className="auth-submit-button" data-testid="login-submit-button" disabled={submitting}>
+          <Link to="/forgot-password" className="login-forgot" data-testid="login-forgot-password-link">
+            Forgot your password?
+          </Link>
+          <button type="submit" className="login-submit-button" data-testid="login-submit-button" disabled={submitting}>
             {submitting ? 'Logging in…' : 'Log in'}
           </button>
         </form>
-        <p className="auth-links">
-          <Link to="/forgot-password" data-testid="login-forgot-password-link">
-            Forgot password?
-          </Link>
-        </p>
-        <p className="auth-links">
+        <p className="login-footer">
           Don't have an account? <Link to="/signup" data-testid="login-signup-link">Sign up</Link>
         </p>
       </div>

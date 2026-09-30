@@ -485,7 +485,7 @@ security/product review of the accounts-workspace feature:
   gap. Email/password is the only sign-in method.
 
 **Task 2.0 (password reset & email verification):** `ForgotPasswordPage.tsx` (PR1, linked from
-`LoginPage.tsx`'s existing "Forgot password?" link) calls `supabase.auth.resetPasswordForEmail(email, {
+`LoginPage.tsx`'s existing "Forgot your password?" link) calls `supabase.auth.resetPasswordForEmail(email, {
 redirectTo: '<origin>/reset-password' })` and always shows the same "if an account exists…" notice
 regardless of whether the email actually has an account — deliberate, to avoid using this form as an
 email-enumeration oracle. `ResetPasswordPage.tsx` (PR2/PR3, routed at `/reset-password`) relies entirely
