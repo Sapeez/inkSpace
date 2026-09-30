@@ -28,6 +28,13 @@ interface WorkspacePageProps {
   auth?: Pick<SupabaseClient['auth'], 'signOut'>;
 }
 
+const MAX_CONFIRM_NAME_LENGTH = 20;
+
+// Keeps a long filename inside the delete-confirm card's borders.
+function truncateName(name: string): string {
+  return name.length > MAX_CONFIRM_NAME_LENGTH ? `${name.slice(0, MAX_CONFIRM_NAME_LENGTH)}…` : name;
+}
+
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -162,13 +169,7 @@ export default function WorkspacePage({ auth = getSupabaseClient().auth }: Works
 
   return (
     <main className="workspace-page" data-testid="workspace-page">
-      <header className="workspace-header">
-        <div className="workspace-header-brand">
-          <img src="/inksapce-logo.png" alt="inkSpace" className="workspace-header-logo" data-testid="workspace-logo" />
-          <span className="workspace-header-subtext" data-testid="workspace-subtext">
-            My workspace
-          </span>
-        </div>
+      <div className="workspace-account-bar">
         <div className="account-menu" ref={accountMenuRef}>
           <button
             type="button"
@@ -207,7 +208,7 @@ export default function WorkspacePage({ auth = getSupabaseClient().auth }: Works
             </div>
           )}
         </div>
-      </header>
+      </div>
 
       <div className="workspace-body">
         <div className="workspace-main">
@@ -253,7 +254,9 @@ export default function WorkspacePage({ auth = getSupabaseClient().auth }: Works
       <ConfirmModal
         open={pendingDelete !== null}
         title="Delete file?"
-        message={`This permanently deletes "${pendingDelete?.name}". This cannot be undone.`}
+        message={`Are you sure you want to delete "${truncateName(pendingDelete?.name ?? '')}"?`}
+        variant="card"
+        confirmLabel="Delete"
         onConfirm={handleConfirmDelete}
         onCancel={handleCancelDelete}
         disabled={deleteSubmitting}

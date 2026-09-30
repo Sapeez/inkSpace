@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 function file(id: string, updatedAt: string) {
-  return { id, filename: `${id}.pdf`, mimeType: 'application/pdf', pageCount: 1, folderId: null, createdAt: updatedAt, updatedAt };
+  return { id, filename: `${id}.pdf`, mimeType: 'application/pdf', pageCount: 1, byteSize: 1048576, folderId: null, createdAt: updatedAt, updatedAt };
 }
 
 test('WF7: renders nothing when there are no files', () => {

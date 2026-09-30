@@ -57,6 +57,14 @@ export default function App() {
         path="/view/:attachmentId"
         element={
           <RequireSession>
+            <ViewerPage readOnly />
+          </RequireSession>
+        }
+      />
+      <Route
+        path="/edit/:attachmentId"
+        element={
+          <RequireSession>
             <ViewerPage />
           </RequireSession>
         }

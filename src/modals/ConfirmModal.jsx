@@ -13,6 +13,9 @@
 // gated on something Cancel shouldn't be blocked by (e.g. a parent page's
 // delete-workspace confirmation, gated on a background counts fetch the user
 // should still be able to back out of immediately).
+// `variant="card"` is the compact card redesign (heading, description, an
+// exit X, Cancel + a caller-labelled primary button); `confirmLabel` only
+// applies there so every default-variant caller keeps its "Confirm" text.
 export default function ConfirmModal({
   open,
   title,
@@ -28,8 +31,41 @@ export default function ConfirmModal({
   confirmTestId,
   cancelTestId,
   errorTestId,
+  variant = 'default',
+  confirmLabel = 'Confirm',
 }) {
   if (!open) return null;
+
+  if (variant === 'card') {
+    return (
+      <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title" data-testid={testId}>
+        <div className="card-modal">
+          <div className="card-modal-content">
+            <h2 id="modal-title" className="card-modal-heading" data-testid={titleTestId}>{title}</h2>
+            <p className="card-modal-description" data-testid={messageTestId}>{message}</p>
+            {error && (
+              <p className="modal-error" role="alert" data-testid={errorTestId}>
+                {error}
+              </p>
+            )}
+          </div>
+          <div className="card-modal-buttons">
+            <button type="button" className="card-modal-button card-modal-button--secondary" onClick={onCancel} disabled={disabled} data-testid={cancelTestId}>
+              Cancel
+            </button>
+            <button type="button" className="card-modal-button card-modal-button--primary" onClick={onConfirm} disabled={confirmDisabled} data-testid={confirmTestId}>
+              {confirmLabel}
+            </button>
+          </div>
+          <button type="button" className="card-modal-exit" aria-label="Close" onClick={onCancel} disabled={disabled}>
+            <svg height="20px" viewBox="0 0 384 512" aria-hidden="true">
+              <path d="M342.6 150.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0L192 210.7 86.6 105.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3L146.7 256 41.4 361.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0L192 301.3 297.4 406.6c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L237.3 256 342.6 150.6z" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title" data-testid={testId}>

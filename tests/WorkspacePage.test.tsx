@@ -26,6 +26,7 @@ interface FakeAttachment {
   filename: string;
   mimeType: string;
   pageCount: number | null;
+  byteSize: number;
   folderId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -59,6 +60,7 @@ function installFakeApi(initial: { attachments?: FakeAttachment[] } = {}) {
         filename: body.filename,
         mimeType: 'application/pdf',
         pageCount: 1,
+        byteSize: 1048576,
         folderId: null,
         createdAt: NOW,
         updatedAt: NOW,
@@ -84,6 +86,7 @@ function renderWorkspacePage(signOut = mock.fn(async () => ({ error: null }))) {
         <Route path="/workspace" element={<WorkspacePage auth={{ signOut } as never} />} />
         <Route path="/login" element={<div data-testid="login-landed" />} />
         <Route path="/view/:attachmentId" element={<div data-testid="viewer-landed" />} />
+        <Route path="/edit/:attachmentId" element={<div data-testid="editor-landed" />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -105,7 +108,7 @@ test('LG4: clicking logout calls signOut and returns to the login page', async (
 
 test('WF6: fetched attachments render as thumbnail cards with filename and date, shown in the list view', async () => {
   installFakeApi({
-    attachments: [{ id: 'a1', filename: 'report.pdf', mimeType: 'application/pdf', pageCount: 1, folderId: null, createdAt: NOW, updatedAt: NOW }],
+    attachments: [{ id: 'a1', filename: 'report.pdf', mimeType: 'application/pdf', pageCount: 1, byteSize: 1048576, folderId: null, createdAt: NOW, updatedAt: NOW }],
   });
   renderWorkspacePage();
 
@@ -127,8 +130,8 @@ test('design req 3.3: an empty workspace shows the no-files empty state', async 
 test('WF11: the search bar filters the visible files client-side', async () => {
   installFakeApi({
     attachments: [
-      { id: 'a1', filename: 'invoice.pdf', mimeType: 'application/pdf', pageCount: 1, folderId: null, createdAt: NOW, updatedAt: NOW },
-      { id: 'a2', filename: 'contract.pdf', mimeType: 'application/pdf', pageCount: 1, folderId: null, createdAt: NOW, updatedAt: NOW },
+      { id: 'a1', filename: 'invoice.pdf', mimeType: 'application/pdf', pageCount: 1, byteSize: 1048576, folderId: null, createdAt: NOW, updatedAt: NOW },
+      { id: 'a2', filename: 'contract.pdf', mimeType: 'application/pdf', pageCount: 1, byteSize: 1048576, folderId: null, createdAt: NOW, updatedAt: NOW },
     ],
   });
   renderWorkspacePage();
@@ -149,8 +152,8 @@ test('WF11: the search bar filters the visible files client-side', async () => {
 test('the workspace lists every file in one flat list, including ones with a folderId', async () => {
   installFakeApi({
     attachments: [
-      { id: 'a1', filename: 'invoice.pdf', mimeType: 'application/pdf', pageCount: 1, folderId: null, createdAt: NOW, updatedAt: NOW },
-      { id: 'a2', filename: 'inside-folder.pdf', mimeType: 'application/pdf', pageCount: 1, folderId: 'folder-1', createdAt: NOW, updatedAt: NOW },
+      { id: 'a1', filename: 'invoice.pdf', mimeType: 'application/pdf', pageCount: 1, byteSize: 1048576, folderId: null, createdAt: NOW, updatedAt: NOW },
+      { id: 'a2', filename: 'inside-folder.pdf', mimeType: 'application/pdf', pageCount: 1, byteSize: 1048576, folderId: 'folder-1', createdAt: NOW, updatedAt: NOW },
     ],
   });
   renderWorkspacePage();
@@ -163,7 +166,7 @@ test('the workspace lists every file in one flat list, including ones with a fol
 
 test('§4.4/WF9: deleting a file from the grid requires confirmation before it disappears', async () => {
   installFakeApi({
-    attachments: [{ id: 'a1', filename: 'report.pdf', mimeType: 'application/pdf', pageCount: 1, folderId: null, createdAt: NOW, updatedAt: NOW }],
+    attachments: [{ id: 'a1', filename: 'report.pdf', mimeType: 'application/pdf', pageCount: 1, byteSize: 1048576, folderId: null, createdAt: NOW, updatedAt: NOW }],
   });
   renderWorkspacePage();
 
@@ -183,7 +186,7 @@ test('§4.4/WF9: deleting a file from the grid requires confirmation before it d
 
 test('§4.4/WF9: cancelling the delete confirmation leaves the file in place', async () => {
   installFakeApi({
-    attachments: [{ id: 'a1', filename: 'report.pdf', mimeType: 'application/pdf', pageCount: 1, folderId: null, createdAt: NOW, updatedAt: NOW }],
+    attachments: [{ id: 'a1', filename: 'report.pdf', mimeType: 'application/pdf', pageCount: 1, byteSize: 1048576, folderId: null, createdAt: NOW, updatedAt: NOW }],
   });
   renderWorkspacePage();
 
@@ -195,14 +198,28 @@ test('§4.4/WF9: cancelling the delete confirmation leaves the file in place', a
   assert.ok(screen.getByTestId(TEST_IDS.FILE_LIST_ITEM), 'the file must still be there after cancelling');
 });
 
-test('WF9: opening a file navigates to its viewer route', async () => {
+test('WF9: Edit navigates to the annotating editor route', async () => {
   installFakeApi({
-    attachments: [{ id: 'a1', filename: 'report.pdf', mimeType: 'application/pdf', pageCount: 1, folderId: null, createdAt: NOW, updatedAt: NOW }],
+    attachments: [{ id: 'a1', filename: 'report.pdf', mimeType: 'application/pdf', pageCount: 1, byteSize: 1048576, folderId: null, createdAt: NOW, updatedAt: NOW }],
   });
   renderWorkspacePage();
 
   await waitFor(() => screen.getByTestId(TEST_IDS.FILE_ACTIONS_OPEN));
   fireEvent.click(screen.getByTestId(TEST_IDS.FILE_ACTIONS_OPEN));
+
+  await waitFor(() => {
+    assert.ok(screen.getByTestId('editor-landed'));
+  });
+});
+
+test('WF9: clicking a file name opens the read-only preview route', async () => {
+  installFakeApi({
+    attachments: [{ id: 'a1', filename: 'report.pdf', mimeType: 'application/pdf', pageCount: 1, byteSize: 1048576, folderId: null, createdAt: NOW, updatedAt: NOW }],
+  });
+  renderWorkspacePage();
+
+  await waitFor(() => screen.getByTestId(TEST_IDS.FILE_LIST_ITEM_NAME));
+  fireEvent.click(screen.getByTestId(TEST_IDS.FILE_LIST_ITEM_NAME));
 
   await waitFor(() => {
     assert.ok(screen.getByTestId('viewer-landed'));

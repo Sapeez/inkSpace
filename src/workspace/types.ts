@@ -5,6 +5,7 @@ export interface WorkspaceAttachment {
   filename: string;
   mimeType: string;
   pageCount: number | null;
+  byteSize: number;
   folderId: string | null;
   createdAt: string;
   updatedAt: string;

@@ -10,7 +10,7 @@ import SaveModal from '../modals/SaveModal.tsx';
 import { usePdfDocument } from './usePdfDocument.ts';
 import { DEFAULT_ANNOTATION_STYLE } from '../toolbar/StyleControls.tsx';
 import { burnInAttachment } from '../lib/index.js';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 
 // D2/D3: decodes the burn-in endpoint's base64 PDF into a real download —
 // same base64-JSON contract SaveModal.tsx's save flow reuses (see
@@ -31,7 +31,9 @@ function downloadBase64Pdf(base64, filename) {
   URL.revokeObjectURL(url);
 }
 
-export default function ViewerPage() {
+// `readOnly` is the preview route (`/view/:id`): PDF + thumbnails + page
+// navigation only — no toolbar, annotation canvas, save or download.
+export default function ViewerPage({ readOnly = false }) {
   const { attachmentId } = useParams();
   const { pdfDoc, loading, error, attachment, accessDenied } = usePdfDocument(attachmentId);
   const annotationCanvasRef = useRef(null);
@@ -70,6 +72,31 @@ export default function ViewerPage() {
   // generic error string.
   if (accessDenied) {
     return <NoAccessState />;
+  }
+
+  if (readOnly) {
+    return (
+      <div className="viewer-layout">
+        <header className="viewer-preview-header" data-testid="viewer-preview-header">
+          <Link to="/workspace" className="viewer-preview-back" data-testid="viewer-preview-back">
+            ← Workspace
+          </Link>
+          <span className="viewer-preview-name" data-testid="viewer-preview-name">
+            {attachment?.filename ?? ''}
+          </span>
+          <Link to={`/edit/${attachmentId}`} className="viewer-preview-edit" data-testid="viewer-preview-edit">
+            Edit
+          </Link>
+        </header>
+        <div className="viewer-main">
+          <ThumbnailPanel pdfDoc={pdfDoc} />
+          <div className="pdf-viewer-region">
+            <PDFViewer pdfDoc={pdfDoc} loading={loading} error={error} />
+            <PageNavigator pdfDoc={pdfDoc} />
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

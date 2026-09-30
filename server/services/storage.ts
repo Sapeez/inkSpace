@@ -14,7 +14,7 @@ interface AttachmentRow {
 
 type AttachmentListRow = Pick<
   Database['public']['Tables']['attachments']['Row'],
-  'id' | 'filename' | 'mime_type' | 'page_count' | 'folder_id' | 'created_at' | 'updated_at'
+  'id' | 'filename' | 'mime_type' | 'page_count' | 'byte_size' | 'folder_id' | 'created_at' | 'updated_at'
 >;
 
 export interface AttachmentSummary {
@@ -22,6 +22,7 @@ export interface AttachmentSummary {
   filename: string;
   mimeType: string;
   pageCount: number | null;
+  byteSize: number;
   folderId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -117,7 +118,7 @@ export async function saveAttachment({ ownerId, filename, pdfBase64 }: SaveAttac
 export async function listAttachments(ownerId: string, folderFilter?: string): Promise<AttachmentSummary[]> {
   let query = supabase
     .from('attachments')
-    .select('id, filename, mime_type, page_count, folder_id, created_at, updated_at')
+    .select('id, filename, mime_type, page_count, byte_size, folder_id, created_at, updated_at')
     .eq('owner_id', ownerId)
     .order('updated_at', { ascending: false });
 
@@ -137,6 +138,7 @@ export async function listAttachments(ownerId: string, folderFilter?: string): P
     filename: row.filename,
     mimeType: row.mime_type,
     pageCount: row.page_count,
+    byteSize: row.byte_size,
     folderId: row.folder_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

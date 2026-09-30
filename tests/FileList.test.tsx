@@ -10,8 +10,8 @@ const { MemoryRouter } = await import('react-router-dom');
 const { default: FileList } = await import('../src/workspace/FileList');
 
 const FILES = [
-  { id: 'a1', filename: 'zeta.pdf', mimeType: 'application/pdf', pageCount: 1, folderId: null, createdAt: '', updatedAt: '2026-01-05T00:00:00.000Z' },
-  { id: 'a2', filename: 'alpha.pdf', mimeType: 'application/pdf', pageCount: 1, folderId: null, createdAt: '', updatedAt: '2026-01-01T00:00:00.000Z' },
+  { id: 'a1', filename: 'zeta.pdf', mimeType: 'application/pdf', pageCount: 1, byteSize: 1048576, folderId: null, createdAt: '', updatedAt: '2026-01-05T00:00:00.000Z' },
+  { id: 'a2', filename: 'alpha.pdf', mimeType: 'application/pdf', pageCount: 1, byteSize: 1048576, folderId: null, createdAt: '', updatedAt: '2026-01-01T00:00:00.000Z' },
 ];
 
 afterEach(() => {
