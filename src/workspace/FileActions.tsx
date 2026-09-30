@@ -1,11 +1,9 @@
 import { useNavigate } from 'react-router-dom';
-import type { WorkspaceAttachment, WorkspaceFolder } from './types';
+import type { WorkspaceAttachment } from './types';
 import { fetchAttachment } from '../lib/index.js';
 
 interface FileActionsProps {
   file: WorkspaceAttachment;
-  folders: WorkspaceFolder[];
-  onMove: (attachmentId: string, folderId: string | null) => void;
   onDelete: (attachmentId: string) => void;
 }
 
@@ -17,10 +15,8 @@ function isAttachmentDownload(value: unknown): value is AttachmentDownload {
   return typeof value === 'object' && value !== null && typeof (value as { url?: unknown }).url === 'string';
 }
 
-// WF9: per-file hover/right-click actions (open, move to folder, download,
-// delete), directly on the grid/list — shared between FileGrid.tsx and
-// FileList.tsx so the two views can't drift apart on what actions exist.
-export default function FileActions({ file, folders, onMove, onDelete }: FileActionsProps) {
+// WF9: per-file hover/right-click actions (open, download, delete), directly on the file list.
+export default function FileActions({ file, onDelete }: FileActionsProps) {
   const navigate = useNavigate();
 
   async function handleDownload() {
@@ -40,20 +36,6 @@ export default function FileActions({ file, folders, onMove, onDelete }: FileAct
       <button type="button" data-testid="file-actions-download" onClick={handleDownload}>
         Download
       </button>
-      <select
-        className="file-actions-move-select"
-        data-testid="file-actions-move-select"
-        value={file.folderId ?? ''}
-        onChange={(event) => onMove(file.id, event.target.value === '' ? null : event.target.value)}
-        aria-label={`Move ${file.filename}`}
-      >
-        <option value="">Top level</option>
-        {folders.map((folder) => (
-          <option key={folder.id} value={folder.id}>
-            {folder.name}
-          </option>
-        ))}
-      </select>
       <button type="button" data-testid="file-actions-delete" onClick={() => onDelete(file.id)}>
         Delete
       </button>

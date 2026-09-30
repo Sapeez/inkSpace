@@ -19,6 +19,7 @@ function renderSignupPage(auth: { signUp: ReturnType<typeof mock.fn> }) {
       <Routes>
         <Route path="/signup" element={<SignupPage auth={auth as never} />} />
         <Route path="/workspace" element={<div data-testid="workspace-landed" />} />
+        <Route path="/login" element={<div data-testid="login-landed" />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -133,4 +134,51 @@ test('signup rejects a password missing required character classes without calli
 
   assert.match(screen.getByTestId(TEST_IDS.SIGNUP_ERROR).textContent ?? '', /uppercase/);
   assert.equal(signUp.mock.callCount(), 0);
+});
+
+test('an invalid email shows the email validation message without calling signUp', () => {
+  const signUp = mock.fn(async () => ({ data: { user: null, session: null }, error: null }));
+  renderSignupPage({ signUp });
+
+  fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_EMAIL_INPUT), { target: { value: 'nope' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_PASSWORD_INPUT), { target: { value: 'Password123!' } });
+  fireEvent.submit(screen.getByTestId(TEST_IDS.SIGNUP_FORM));
+
+  assert.match(screen.getByTestId(TEST_IDS.SIGNUP_ERROR).textContent ?? '', /'@'/);
+  assert.equal(signUp.mock.callCount(), 0);
+});
+
+test('a password over 20 characters is rejected without calling signUp, and editing clears the tooltip', () => {
+  const signUp = mock.fn(async () => ({ data: { user: null, session: null }, error: null }));
+  renderSignupPage({ signUp });
+
+  fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_EMAIL_INPUT), { target: { value: 'new@example.com' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_PASSWORD_INPUT), { target: { value: 'Aa1!aaaaaaaaaaaaaaaaa' } });
+  fireEvent.submit(screen.getByTestId(TEST_IDS.SIGNUP_FORM));
+  assert.match(screen.getByTestId(TEST_IDS.SIGNUP_ERROR).textContent ?? '', /8-20 characters/);
+  assert.equal(signUp.mock.callCount(), 0);
+
+  fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_PASSWORD_INPUT), { target: { value: 'Password123!' } });
+  assert.equal(screen.queryByTestId(TEST_IDS.SIGNUP_ERROR), null);
+});
+
+test('the "Log in" footer link navigates to /login', () => {
+  renderSignupPage({ signUp: mock.fn(async () => ({ data: {}, error: null })) });
+  fireEvent.click(screen.getByTestId(TEST_IDS.SIGNUP_LOGIN_LINK));
+  assert.ok(screen.getByTestId('login-landed'));
+});
+
+test('the check-your-email card names the address and its "Back to login" button navigates to /login', async () => {
+  const signUp = mock.fn(async () => ({ data: { user: { id: 'user-1' }, session: null }, error: null }));
+  renderSignupPage({ signUp });
+
+  fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_EMAIL_INPUT), { target: { value: 'new@example.com' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_PASSWORD_INPUT), { target: { value: 'Password123!' } });
+  fireEvent.submit(screen.getByTestId(TEST_IDS.SIGNUP_FORM));
+
+  await waitFor(() => {
+    assert.match(screen.getByTestId(TEST_IDS.SIGNUP_INFO).textContent ?? '', /new@example\.com/);
+  });
+  fireEvent.click(screen.getByTestId(TEST_IDS.SIGNUP_LOGIN_LINK));
+  assert.ok(screen.getByTestId('login-landed'));
 });

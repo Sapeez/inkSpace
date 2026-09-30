@@ -1,33 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../lib/supabaseClient';
-import { useSession } from '../lib/session';
 import {
-  fetchFolders,
   fetchAttachments,
   createAttachment,
-  createFolder,
-  changeFolder,
-  moveAttachmentToFolder,
   removeAttachment,
-  removeFolder,
 } from '../lib/index.js';
 import { validateFilename } from '../utils/filenameUtils.js';
 import { MAX_UPLOAD_BYTES, formatMegabytes } from '../utils/uploadLimits.js';
-import type { WorkspaceAttachment, WorkspaceFolder } from './types';
+import type { WorkspaceAttachment } from './types';
 import RecentSection from './RecentSection';
-import FileGrid from './FileGrid';
 import FileList from './FileList';
-import Breadcrumbs from './Breadcrumbs';
-import FolderTree from './FolderTree';
 import SearchBar from './SearchBar';
 import ConfirmModal from '../modals/ConfirmModal.jsx';
 
-type ViewMode = 'grid' | 'list';
 
-type PendingDelete = { kind: 'file'; id: string; name: string } | { kind: 'folder'; id: string; name: string };
+interface PendingDelete {
+  id: string;
+  name: string;
+}
 
 interface WorkspacePageProps {
   // Testability seam only — see the matching comment on LoginPage.tsx/
@@ -50,75 +43,56 @@ function readFileAsBase64(file: File): Promise<string> {
   });
 }
 
-interface CreatedAttachment {
-  id: string;
-}
-
-function isCreatedAttachment(value: unknown): value is CreatedAttachment {
-  return typeof value === 'object' && value !== null && typeof (value as { id?: unknown }).id === 'string';
-}
-
-// WF1-WF11: the workspace file-manager shell — Recent (root only, WF7),
-// folder sidebar + breadcrumbs (WF2-WF4/WF10), search (WF11), grid/list
-// toggle (WF6/WF8), and Upload as the primary call to action (design req
-// 3.3) rather than a template/create-new flow (out-of-scope 3.4).
+// WF6-WF9/WF11: the workspace file-manager shell — Recent (WF7), search
+// (WF11), and Upload as the primary call to
+// action (design req 3.3) rather than a template/create-new flow
+// (out-of-scope 3.4). The folder sidebar/breadcrumbs (WF1-WF4/WF10) were
+// removed — the workspace is one flat list of files.
 export default function WorkspacePage({ auth = getSupabaseClient().auth }: WorkspacePageProps = {}) {
   const navigate = useNavigate();
-  const { session } = useSession();
-  const params = useParams<{ folderId?: string }>();
-  const currentFolderId = params.folderId ?? null;
 
-  const [folders, setFolders] = useState<WorkspaceFolder[]>([]);
   const [files, setFiles] = useState<WorkspaceAttachment[]>([]);
-  const [allFiles, setAllFiles] = useState<WorkspaceAttachment[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
 
-  // §4.4: any destructive action reachable from the UI (WF9 file delete,
-  // WF4 folder delete) is gated by a confirmation modal — `FileActions`/
-  // `FolderTree` only ever request a delete here, never call the API
-  // directly.
+  // §4.4: WF9 file delete is gated by a confirmation modal — `FileActions`
+  // only ever requests a delete here, never calls the API directly.
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const loadFolders = useCallback(async () => {
-    const fetched = (await fetchFolders()) as WorkspaceFolder[];
-    setFolders(fetched);
-  }, []);
-
   const loadFiles = useCallback(async () => {
-    const fetched = (await fetchAttachments({ folderId: currentFolderId ?? 'root' })) as WorkspaceAttachment[];
-    setFiles(fetched);
-  }, [currentFolderId]);
-
-  // WF7/WF11: unlike `files` (scoped to whichever folder is currently open),
-  // this is every attachment in the caller's workspace regardless of folder
-  // — `fetchAttachments({})` applies no `folderId` filter server-side (see
-  // storage.ts's `listAttachments`). Recent (root-only display, but the
-  // files it lists shouldn't be limited to unfiled ones) and the search bar
-  // (must search the whole workspace, not just the folder you're browsing —
-  // found in code review, previously `allFiles` was actually just the
-  // root-level list under a misleading name) both need the true full list.
-  const loadAllFiles = useCallback(async () => {
     const fetched = (await fetchAttachments({})) as WorkspaceAttachment[];
-    setAllFiles(fetched);
+    setFiles(fetched);
   }, []);
-
-  const refreshFiles = useCallback(async () => {
-    await Promise.all([loadFiles(), loadAllFiles()]);
-  }, [loadFiles, loadAllFiles]);
 
   useEffect(() => {
     setLoadError(null);
-    Promise.all([loadFolders(), refreshFiles()]).catch((err) => {
+    loadFiles().catch((err) => {
       setLoadError(err instanceof Error ? err.message : 'Could not load your workspace.');
     });
-  }, [loadFolders, refreshFiles]);
+  }, [loadFiles]);
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+    function handlePointerDown(event: MouseEvent) {
+      if (!accountMenuRef.current?.contains(event.target as Node)) setAccountMenuOpen(false);
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setAccountMenuOpen(false);
+    }
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [accountMenuOpen]);
 
   async function handleLogout() {
     await auth.signOut();
@@ -144,11 +118,8 @@ export default function WorkspacePage({ auth = getSupabaseClient().auth }: Works
     setUploading(true);
     try {
       const pdfBase64 = await readFileAsBase64(file);
-      const created: unknown = await createAttachment({ filename: file.name, pdfBase64 });
-      if (currentFolderId && isCreatedAttachment(created)) {
-        await moveAttachmentToFolder(created.id, currentFolderId);
-      }
-      await refreshFiles();
+      await createAttachment({ filename: file.name, pdfBase64 });
+      await loadFiles();
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Upload failed. Please try again.');
     } finally {
@@ -156,53 +127,22 @@ export default function WorkspacePage({ auth = getSupabaseClient().auth }: Works
     }
   }
 
-  async function handleFolderCreate(name: string, parentFolderId: string | null) {
-    await createFolder({ name, parentFolderId });
-    await loadFolders();
-  }
-
-  async function handleFolderRename(folderId: string, name: string) {
-    await changeFolder(folderId, { name });
-    await loadFolders();
-  }
-
-  function requestFolderDelete(folderId: string) {
-    const folder = folders.find((f) => f.id === folderId);
-    setDeleteError(null);
-    setPendingDelete({ kind: 'folder', id: folderId, name: folder?.name ?? 'this folder' });
-  }
-
-  async function handleFileMove(attachmentId: string, folderId: string | null) {
-    await moveAttachmentToFolder(attachmentId, folderId);
-    await refreshFiles();
-  }
-
   function requestFileDelete(attachmentId: string) {
-    const file = files.find((f) => f.id === attachmentId) ?? allFiles.find((f) => f.id === attachmentId);
+    const file = files.find((f) => f.id === attachmentId);
     setDeleteError(null);
-    setPendingDelete({ kind: 'file', id: attachmentId, name: file?.filename ?? 'this file' });
+    setPendingDelete({ id: attachmentId, name: file?.filename ?? 'this file' });
   }
 
   async function handleConfirmDelete() {
     if (!pendingDelete || deleteSubmitting) return;
     setDeleteSubmitting(true);
     try {
-      if (pendingDelete.kind === 'file') {
-        await removeAttachment(pendingDelete.id);
-        await refreshFiles();
-      } else {
-        await removeFolder(pendingDelete.id);
-        await loadFolders();
-        if (pendingDelete.id === currentFolderId) {
-          navigate('/workspace');
-        } else {
-          await refreshFiles();
-        }
-      }
+      await removeAttachment(pendingDelete.id);
+      await loadFiles();
       setPendingDelete(null);
     } catch (err) {
-      // §4.8's "stay open, don't auto-close on failure" applies here too —
-      // same reasoning as SettingsPage.tsx's delete-account modal.
+      // §4.8's "stay open, don't auto-close on failure" — same reasoning as
+      // SettingsPage.tsx's delete-account modal.
       setDeleteError(err instanceof Error ? err.message : 'Could not delete. Please try again.');
     } finally {
       setDeleteSubmitting(false);
@@ -215,41 +155,61 @@ export default function WorkspacePage({ auth = getSupabaseClient().auth }: Works
     setDeleteError(null);
   }
 
-  // WF11: search is workspace-wide, not scoped to whichever folder happens
-  // to be open — found in code review: this previously filtered `files`
-  // (the current folder's own list), so searching from inside a folder
-  // could never surface a match that lived elsewhere in the workspace.
   const visibleFiles =
     searchQuery.trim().length === 0
       ? files
-      : allFiles.filter((file) => file.filename.toLowerCase().includes(searchQuery.trim().toLowerCase()));
+      : files.filter((file) => file.filename.toLowerCase().includes(searchQuery.trim().toLowerCase()));
 
   return (
     <main className="workspace-page" data-testid="workspace-page">
       <header className="workspace-header">
-        <span data-testid="workspace-user-email">{session?.user.email}</span>
-        <Link to="/settings" data-testid="settings-link">
-          Settings
-        </Link>
-        <Link to="/workspace/settings" data-testid="workspace-settings-link">
-          Workspace settings
-        </Link>
-        <button type="button" className="auth-submit-button" data-testid="logout-button" onClick={handleLogout}>
-          Log out
-        </button>
+        <div className="workspace-header-brand">
+          <img src="/inksapce-logo.png" alt="inkSpace" className="workspace-header-logo" data-testid="workspace-logo" />
+          <span className="workspace-header-subtext" data-testid="workspace-subtext">
+            My workspace
+          </span>
+        </div>
+        <div className="account-menu" ref={accountMenuRef}>
+          <button
+            type="button"
+            className="account-menu-trigger"
+            data-testid="account-menu-button"
+            aria-haspopup="menu"
+            aria-expanded={accountMenuOpen}
+            onClick={() => setAccountMenuOpen((open) => !open)}
+          >
+            Account
+            <svg className="account-menu-caret" viewBox="0 0 12 12" aria-hidden="true">
+              <path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          {accountMenuOpen && (
+            <div className="account-menu-list" role="menu" data-testid="account-menu">
+              <button
+                type="button"
+                role="menuitem"
+                className="account-menu-item"
+                data-testid="settings-link"
+                onClick={() => navigate('/settings')}
+              >
+                <svg viewBox="0 0 32 32" aria-hidden="true">
+                  <path d="m17.074 30h-2.148c-1.038 0-1.914-.811-1.994-1.846l-.125-1.635c-.687-.208-1.351-.484-1.985-.824l-1.246 1.067c-.788.677-1.98.631-2.715-.104l-1.52-1.52c-.734-.734-.78-1.927-.104-2.715l1.067-1.246c-.34-.635-.616-1.299-.824-1.985l-1.634-.125c-1.035-.079-1.846-.955-1.846-1.993v-2.148c0-1.038.811-1.914 1.846-1.994l1.635-.125c.208-.687.484-1.351.824-1.985l-1.068-1.247c-.676-.788-.631-1.98.104-2.715l1.52-1.52c.734-.734 1.927-.779 2.715-.104l1.246 1.067c.635-.34 1.299-.616 1.985-.824l.125-1.634c.08-1.034.956-1.845 1.994-1.845h2.148c1.038 0 1.914.811 1.994 1.846l.125 1.635c.687.208 1.351.484 1.985.824l1.246-1.067c.787-.676 1.98-.631 2.715.104l1.52 1.52c.734.734.78 1.927.104 2.715l-1.067 1.246c.34.635.616 1.299.824 1.985l1.634.125c1.035.079 1.846.955 1.846 1.993v2.148c0 1.038-.811 1.914-1.846 1.994l-1.635.125c-.208.687-.484 1.351-.824 1.985l1.067 1.246c.677.788.631 1.98-.104 2.715l-1.52 1.52c-.734.734-1.928.78-2.715.104l-1.246-1.067c-.635.34-1.299.616-1.985.824l-.125 1.634c-.079 1.035-.955 1.846-1.993 1.846zm-5.835-6.373c.848.53 1.768.912 2.734 1.135.426.099.739.462.772.898l.18 2.341 2.149-.001.18-2.34c.033-.437.347-.8.772-.898.967-.223 1.887-.604 2.734-1.135.371-.232.849-.197 1.181.089l1.784 1.529 1.52-1.52-1.529-1.784c-.285-.332-.321-.811-.089-1.181.53-.848.912-1.768 1.135-2.734.099-.426.462-.739.898-.772l2.341-.18h-.001v-2.148l-2.34-.18c-.437-.033-.8-.347-.898-.772-.223-.967-.604-1.887-1.135-2.734-.232-.37-.196-.849.089-1.181l1.529-1.784-1.52-1.52-1.784 1.529c-.332.286-.81.321-1.181.089-.848-.53-1.768-.912-2.734-1.135-.426-.099-.739-.462-.772-.898l-.18-2.341-2.148.001-.18 2.34c-.033.437-.347.8-.772.898-.967.223-1.887.604-2.734 1.135-.37.232-.849.197-1.181-.089l-1.785-1.529-1.52 1.52 1.529 1.784c.285.332.321.811.089 1.181-.53.848-.912 1.768-1.135 2.734-.099.426-.462.739-.898.772l-2.341.18.002 2.148 2.34.18c.437.033.8.347.898.772.223.967.604 1.887 1.135 2.734.232.37.196.849-.089 1.181l-1.529 1.784 1.52 1.52 1.784-1.529c.332-.287.813-.32 1.18-.089z" fill="currentColor" />
+                  <path d="m16 23c-3.859 0-7-3.141-7-7s3.141-7 7-7 7 3.141 7 7-3.141 7-7 7zm0-12c-2.757 0-5 2.243-5 5s2.243 5 5 5 5-2.243 5-5-2.243-5-5-5z" fill="currentColor" />
+                </svg>
+                Settings
+              </button>
+              <button type="button" role="menuitem" className="account-menu-item" data-testid="logout-button" onClick={handleLogout}>
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M6 2H3.5A1.5 1.5 0 0 0 2 3.5v9A1.5 1.5 0 0 0 3.5 14H6M10.5 11l3-3-3-3M13.5 8H6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Logout
+              </button>
+            </div>
+          )}
+        </div>
       </header>
 
       <div className="workspace-body">
-        <aside className="workspace-sidebar">
-          <FolderTree
-            folders={folders}
-            currentFolderId={currentFolderId}
-            onCreate={handleFolderCreate}
-            onRename={handleFolderRename}
-            onDelete={requestFolderDelete}
-          />
-        </aside>
-
         <div className="workspace-main">
           <div className="workspace-toolbar">
             <button
@@ -271,26 +231,6 @@ export default function WorkspacePage({ auth = getSupabaseClient().auth }: Works
               style={{ display: 'none' }}
             />
             <SearchBar value={searchQuery} onChange={setSearchQuery} />
-            <div className="workspace-view-toggle">
-              <button
-                type="button"
-                data-testid="workspace-view-grid-button"
-                className={viewMode === 'grid' ? 'workspace-view-toggle-button workspace-view-toggle-button--active' : 'workspace-view-toggle-button'}
-                onClick={() => setViewMode('grid')}
-                aria-label="Grid view"
-              >
-                Grid
-              </button>
-              <button
-                type="button"
-                data-testid="workspace-view-list-button"
-                className={viewMode === 'list' ? 'workspace-view-toggle-button workspace-view-toggle-button--active' : 'workspace-view-toggle-button'}
-                onClick={() => setViewMode('list')}
-                aria-label="List view"
-              >
-                List
-              </button>
-            </div>
           </div>
 
           {uploadError && (
@@ -304,26 +244,16 @@ export default function WorkspacePage({ auth = getSupabaseClient().auth }: Works
             </span>
           )}
 
-          <Breadcrumbs folders={folders} currentFolderId={currentFolderId} />
+          <RecentSection files={files} />
 
-          {!currentFolderId && <RecentSection files={allFiles} />}
-
-          {viewMode === 'grid' ? (
-            <FileGrid files={visibleFiles} folders={folders} onMove={handleFileMove} onDelete={requestFileDelete} />
-          ) : (
-            <FileList files={visibleFiles} folders={folders} onMove={handleFileMove} onDelete={requestFileDelete} />
-          )}
+          <FileList files={visibleFiles} onDelete={requestFileDelete} />
         </div>
       </div>
 
       <ConfirmModal
         open={pendingDelete !== null}
-        title={pendingDelete?.kind === 'folder' ? 'Delete folder?' : 'Delete file?'}
-        message={
-          pendingDelete?.kind === 'folder'
-            ? `This permanently deletes "${pendingDelete.name}" and any subfolders inside it. Files inside move to the top level, not deleted. This cannot be undone.`
-            : `This permanently deletes "${pendingDelete?.name}". This cannot be undone.`
-        }
+        title="Delete file?"
+        message={`This permanently deletes "${pendingDelete?.name}". This cannot be undone.`}
         onConfirm={handleConfirmDelete}
         onCancel={handleCancelDelete}
         disabled={deleteSubmitting}

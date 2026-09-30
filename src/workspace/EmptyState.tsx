@@ -1,7 +1,6 @@
-// design req 3.3: no-files/no-folders empty states — a distinct message per
-// variant rather than one generic "nothing here" for both.
+// design req 3.3: no-files empty state.
 interface EmptyStateProps {
-  variant: 'files' | 'folders';
+  variant: 'files';
   testId: string;
 }
 
@@ -9,10 +8,6 @@ const COPY: Record<EmptyStateProps['variant'], { title: string; message: string 
   files: {
     title: 'No files yet',
     message: 'Upload a PDF to get started.',
-  },
-  folders: {
-    title: 'No folders yet',
-    message: 'Create a folder to organize your files.',
   },
 };
 

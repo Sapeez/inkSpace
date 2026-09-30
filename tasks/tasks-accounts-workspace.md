@@ -40,9 +40,9 @@
 - `src/routes/VerifyEmailPage.tsx` - New. Verification-link callback + resend action (EV1, EV3).
 - `src/routes/SettingsPage.tsx` - New. Profile / security / danger-zone sections (US1–US5).
 - `src/routes/SettingsPage.test.tsx` - Component test.
-- `src/workspace/WorkspacePage.tsx` - New. File-manager shell (Recent, grid/list, breadcrumbs, search — WF6–WF11).
+- `src/workspace/WorkspacePage.tsx` - New. File-manager shell (Recent, file list, breadcrumbs, search — WF6–WF11).
 - `src/workspace/RecentSection.tsx` - New (WF7).
-- `src/workspace/FileGrid.tsx` / `src/workspace/FileList.tsx` - New. Thumbnail-card grid (default) and sortable list view (WF6, WF8, WF9).
+- `src/workspace/FileList.tsx` - New. Sortable list view, the workspace's only file view (WF6, WF8, WF9). The thumbnail-card grid (`FileGrid.tsx`) and the grid/list toggle were removed later.
 - `src/workspace/Breadcrumbs.tsx` - New (WF10).
 - `src/workspace/FolderTree.tsx` - New. Sidebar folder navigation + create/rename/delete UI (WF2–WF4, WF10).
 - `src/workspace/SearchBar.tsx` - New (WF11).

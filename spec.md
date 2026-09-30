@@ -469,6 +469,43 @@ own comment's instruction; `src/routes/LoginPage.tsx`/`SignupPage.tsx` (task 1.4
 login/signup UI it was standing in for. Owner-only access is now enforced against a real verified
 identity, not a value the client can simply set.
 
+**Login/signup UI restyle (commit `ca982f3`):** the auth pages (`LoginPage`, `SignupPage`,
+`ForgotPasswordPage`, `ResetPasswordPage`) share a frosted-card layout. Behavior that changed or was added
+beyond the original LG1/SU1 wording:
+- **Inline validation tooltips replace the browser's native bubble.** Forms use `noValidate`; on submit,
+  `FieldTooltip.tsx` renders the first failing field's message above that field (`role="alert"`, test ids
+  `login-error` / `signup-error` / `forgot-password-error`) and the tooltip clears as soon as the user edits
+  a field. `validateEmailField` returns "Email is required", "Please include an '@' in the email
+  address.", or "Please enter a valid email address."; login additionally requires a non-empty password
+  ("Password is required"). Server/Supabase errors (bad credentials, rate limit, signUp error) show in the
+  same style above the submit button.
+- **Signup password policy** (`src/lib/passwordPolicy.ts`, also enforced on reset-password and Settings
+  change-password): 8-20 characters with an uppercase letter, a lowercase letter, a number, and a special
+  (non-alphanumeric, non-whitespace) character; a failing password shows the full requirements list in one
+  message. **Login does not apply this policy** so accounts created before it existed can still sign in.
+- **Show/hide password:** `PasswordField.tsx` renders an eye toggle (visible only once the field has
+  content) that flips the input between `password` and `text`.
+- **Back to login:** the check-your-email cards and the forgot-password form use `BackToLoginButton.tsx`
+  (links to `/login`).
+- **Already-registered email:** with email confirmation on, Supabase returns a user with empty `identities`
+  instead of an error; signup shows "An account with this email already exists. Please log in instead."
+- Branded Supabase email templates live in `supabase/templates/` (see `supabase/README.md`); they must be
+  pasted into the dashboard manually, so nothing tests them.
+Test coverage: `tests/LoginPage.test.tsx`, `tests/SignupPage.test.tsx`, `tests/ForgotPasswordPage.test.tsx`,
+`tests/passwordPolicy.test.ts`, `tests/fieldValidation.test.ts` (component level, mocked Supabase client).
+
+**Workspace file view:** the workspace shows files only as the sortable list (`FileList.tsx`); the grid view, `FileGrid.tsx`, and the Grid/List toggle (WF8) were removed.
+
+**Workspace folders removed from the UI:** the workspace has no folder sidebar, breadcrumbs, or folder
+navigation (WF1–WF4, WF10 are withdrawn). `WorkspacePage.tsx` fetches every attachment with one
+`GET /api/attachments` call and shows them in a single flat list, so files that already carry a `folderId`
+still appear. Consequently: the `/workspace/folders/:folderId` route, `FolderTree.tsx`, `Breadcrumbs.tsx`,
+the per-file "Move to folder" select (WF3), the folder-delete confirmation, and the "no folders" empty state
+are gone, and Recent (WF7) and search (WF11) both operate on that one list. Still in place: Upload, Recent,
+search, sort, per-file Open/Download/Delete (delete is still confirmation-gated), and the Account menu.
+**Backend untouched:** `/api/folders`, `folders.ts`, the `folders` table/migration, and account-deletion
+handling of folders remain; they are simply unreachable from the UI. Removing them is a separate decision.
+
 Two things task 1.0 deliberately did **not** attempt to verify live, both worth flagging in the next
 security/product review of the accounts-workspace feature:
 - **EV2** ("an unverified account can still log in and use its own workspace with no gate anywhere")
@@ -675,7 +712,7 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   `pdf-lib` type usage) lazy-load its dependency is out of scope for the accounts-workspace task list and
   risks destabilizing already-reviewed code for a verification nicety.
 - **No pagination on `GET /api/attachments`/`GET /api/folders` (task 4.0) or the workspace UI that lists
-  them (task 5.0)** — `listAttachments`/`listFolders` return every row in one query, and
+  attachments (task 5.0)** — `listAttachments`/`listFolders` return every row in one query, and
   `WorkspacePage.tsx`/`SearchBar.tsx` filter that full list client-side (acceptable per code-review.md
   §3 Performance, which only flags client-side filtering as a problem when the underlying list is itself
   unbounded/unpaginated — which it is here). Flagged in task 4.9's review as something for task 5.0/6.0 to

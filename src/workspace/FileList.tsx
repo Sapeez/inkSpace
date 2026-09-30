@@ -1,14 +1,12 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { WorkspaceAttachment, WorkspaceFolder } from './types';
+import type { WorkspaceAttachment } from './types';
 import FileActions from './FileActions';
 import EmptyState from './EmptyState';
 import { formatDate } from './formatDate';
 
 interface FileListProps {
   files: WorkspaceAttachment[];
-  folders: WorkspaceFolder[];
-  onMove: (attachmentId: string, folderId: string | null) => void;
   onDelete: (attachmentId: string) => void;
 }
 
@@ -25,7 +23,7 @@ function sortFiles(files: WorkspaceAttachment[], sortKey: SortKey): WorkspaceAtt
 }
 
 // WF8: list view, sortable by name or last-modified.
-export default function FileList({ files, folders, onMove, onDelete }: FileListProps) {
+export default function FileList({ files, onDelete }: FileListProps) {
   const [sortKey, setSortKey] = useState<SortKey>('name');
 
   if (files.length === 0) {
@@ -57,11 +55,11 @@ export default function FileList({ files, folders, onMove, onDelete }: FileListP
       <ul className="file-list-items">
         {sortedFiles.map((file) => (
           <li key={file.id} className="file-list-item" data-testid="file-list-item">
-            <Link to={`/view/${file.id}`} className="file-list-item-name">
+            <Link to={`/view/${file.id}`} className="file-list-item-name" data-testid="file-list-item-name">
               {file.filename}
             </Link>
             <span className="file-list-item-date">{formatDate(file.updatedAt)}</span>
-            <FileActions file={file} folders={folders} onMove={onMove} onDelete={onDelete} />
+            <FileActions file={file} onDelete={onDelete} />
           </li>
         ))}
       </ul>

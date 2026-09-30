@@ -17,18 +17,17 @@ afterEach(() => {
 });
 
 const FILE = { id: 'a1', filename: 'report.pdf', mimeType: 'application/pdf', pageCount: 1, folderId: null, createdAt: '', updatedAt: '' };
-const FOLDERS = [{ id: 'f1', name: 'Contracts', parentFolderId: null, createdAt: '', updatedAt: '' }];
 
-function renderActions(onMove = mock.fn(), onDelete = mock.fn()) {
+function renderActions(onDelete = mock.fn()) {
   render(
     <MemoryRouter initialEntries={['/workspace']}>
       <Routes>
-        <Route path="/workspace" element={<FileActions file={FILE} folders={FOLDERS} onMove={onMove} onDelete={onDelete} />} />
+        <Route path="/workspace" element={<FileActions file={FILE} onDelete={onDelete} />} />
         <Route path="/view/:attachmentId" element={<div data-testid="viewer-landed" />} />
       </Routes>
     </MemoryRouter>,
   );
-  return { onMove, onDelete };
+  return { onDelete };
 }
 
 test('WF9: Open navigates to the file\'s viewer route', async () => {
@@ -41,20 +40,6 @@ test('WF9: Delete calls onDelete with the file id', () => {
   const { onDelete } = renderActions();
   fireEvent.click(screen.getByTestId(TEST_IDS.FILE_ACTIONS_DELETE));
   assert.deepEqual(onDelete.mock.calls[0]?.arguments, ['a1']);
-});
-
-test('WF3: choosing a folder from the move select calls onMove with that folder id', () => {
-  const { onMove } = renderActions();
-  fireEvent.change(screen.getByTestId(TEST_IDS.FILE_ACTIONS_MOVE_SELECT), { target: { value: 'f1' } });
-  assert.deepEqual(onMove.mock.calls[0]?.arguments, ['a1', 'f1']);
-});
-
-test('WF3: choosing "Top level" calls onMove with null', () => {
-  const { onMove } = renderActions();
-  const select = screen.getByTestId(TEST_IDS.FILE_ACTIONS_MOVE_SELECT);
-  fireEvent.change(select, { target: { value: 'f1' } });
-  fireEvent.change(select, { target: { value: '' } });
-  assert.deepEqual(onMove.mock.calls[1]?.arguments, ['a1', null]);
 });
 
 test('WF9: Download fetches the signed URL and triggers a browser download', async () => {

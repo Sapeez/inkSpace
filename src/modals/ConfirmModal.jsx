@@ -10,7 +10,7 @@
 // passes them (a fire-and-forget confirm like delete-annotation).
 // `confirmDisabled` overrides `disabled` for the Confirm button only,
 // falling back to `disabled` when unset — for a caller that needs Confirm
-// gated on something Cancel shouldn't be blocked by (e.g. WorkspaceSettingsPage's
+// gated on something Cancel shouldn't be blocked by (e.g. a parent page's
 // delete-workspace confirmation, gated on a background counts fetch the user
 // should still be able to back out of immediately).
 export default function ConfirmModal({

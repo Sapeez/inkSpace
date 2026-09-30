@@ -15,7 +15,7 @@ export const TEST_IDS = {
   LOGIN_SIGNUP_LINK: 'login-signup-link',
   LOGIN_FORGOT_PASSWORD_LINK: 'login-forgot-password-link',
   LOGOUT_BUTTON: 'logout-button',
-  WORKSPACE_USER_EMAIL: 'workspace-user-email',
+  WORKSPACE_LOGO: 'workspace-logo',
   SETTINGS_LINK: 'settings-link',
 
   // ── Password reset & email verification (accounts-workspace PRD PR/EV, task 2.0) ─
@@ -133,73 +133,27 @@ export const TEST_IDS = {
   WORKSPACE_UPLOAD_BUTTON: 'workspace-upload-button',
   WORKSPACE_UPLOAD_INPUT: 'workspace-upload-input',
   WORKSPACE_UPLOAD_ERROR: 'workspace-upload-error',
-  WORKSPACE_VIEW_GRID_BUTTON: 'workspace-view-grid-button',
-  WORKSPACE_VIEW_LIST_BUTTON: 'workspace-view-list-button',
   RECENT_SECTION: 'recent-section',
   RECENT_ITEM: 'recent-item',
-  FILE_GRID: 'file-grid',
-  FILE_GRID_ITEM: 'file-grid-item',
-  FILE_GRID_ITEM_NAME: 'file-grid-item-name',
-  FILE_GRID_ITEM_DATE: 'file-grid-item-date',
   FILE_THUMBNAIL: 'file-thumbnail',
   FILE_LIST: 'file-list',
   FILE_LIST_ITEM: 'file-list-item',
+  FILE_LIST_ITEM_NAME: 'file-list-item-name',
   FILE_LIST_SORT_NAME_BUTTON: 'file-list-sort-name-button',
   FILE_LIST_SORT_DATE_BUTTON: 'file-list-sort-date-button',
   FILE_ACTIONS_OPEN: 'file-actions-open',
   FILE_ACTIONS_DOWNLOAD: 'file-actions-download',
   FILE_ACTIONS_DELETE: 'file-actions-delete',
-  FILE_ACTIONS_MOVE_SELECT: 'file-actions-move-select',
-  BREADCRUMBS: 'breadcrumbs',
-  BREADCRUMB_ITEM: 'breadcrumb-item',
-  FOLDER_TREE: 'folder-tree',
-  FOLDER_TREE_ITEM: 'folder-tree-item',
-  // FOLDER_CREATE_BUTTON is the top-level "+ New folder" trigger only — each
-  // node's own create/rename/delete buttons are per-node ids (see the
-  // folderCreateButtonTestId/folderRenameButtonTestId/folderDeleteButtonTestId
-  // builders below), not this flat string, since a tree with >1 folder
-  // renders one of each per node.
-  FOLDER_CREATE_BUTTON: 'folder-create-button',
-  FOLDER_CREATE_INPUT: 'folder-create-input',
-  FOLDER_CREATE_CONFIRM_BUTTON: 'folder-create-confirm-button',
-  FOLDER_RENAME_INPUT: 'folder-rename-input',
   SEARCH_BAR: 'search-bar',
   SEARCH_INPUT: 'search-input',
   WORKSPACE_EMPTY_FILES: 'workspace-empty-files',
-  WORKSPACE_EMPTY_FOLDERS: 'workspace-empty-folders',
   WORKSPACE_DELETE_CONFIRM_MODAL: 'workspace-delete-confirm-modal',
   WORKSPACE_DELETE_CONFIRM_TITLE: 'workspace-delete-confirm-title',
   WORKSPACE_DELETE_CONFIRM_MESSAGE: 'workspace-delete-confirm-message',
   WORKSPACE_DELETE_CONFIRM_BUTTON: 'workspace-delete-confirm-button',
   WORKSPACE_DELETE_CANCEL_BUTTON: 'workspace-delete-cancel-button',
   WORKSPACE_DELETE_ERROR: 'workspace-delete-error',
-
-  // ── Workspace settings (accounts-workspace PRD WC1–WC3, task 6.0) ────────
-  WORKSPACE_SETTINGS_LINK: 'workspace-settings-link',
-  WORKSPACE_SETTINGS_PAGE: 'workspace-settings-page',
-  WORKSPACE_SETTINGS_BACK_LINK: 'workspace-settings-back-link',
-  WORKSPACE_SETTINGS_FORM: 'workspace-settings-form',
-  WORKSPACE_SETTINGS_DISPLAY_NAME_INPUT: 'workspace-settings-display-name-input',
-  WORKSPACE_SETTINGS_SAVE_BUTTON: 'workspace-settings-save-button',
-  WORKSPACE_SETTINGS_ERROR: 'workspace-settings-error',
-  WORKSPACE_SETTINGS_SUCCESS: 'workspace-settings-success',
-  WORKSPACE_SETTINGS_LOAD_ERROR: 'workspace-settings-load-error',
-  WORKSPACE_SETTINGS_DELETE_BUTTON: 'workspace-settings-delete-button',
-  WORKSPACE_SETTINGS_DELETE_MODAL: 'workspace-settings-delete-modal',
-  WORKSPACE_SETTINGS_DELETE_MODAL_TITLE: 'workspace-settings-delete-modal-title',
-  WORKSPACE_SETTINGS_DELETE_MODAL_MESSAGE: 'workspace-settings-delete-modal-message',
-  WORKSPACE_SETTINGS_DELETE_CONFIRM_BUTTON: 'workspace-settings-delete-confirm-button',
-  WORKSPACE_SETTINGS_DELETE_CANCEL_BUTTON: 'workspace-settings-delete-cancel-button',
-  WORKSPACE_SETTINGS_DELETE_ERROR: 'workspace-settings-delete-error',
 } as const;
-
-// Per-node FolderTree.tsx action buttons (found in code review: a shared,
-// un-suffixed id across every node in a multi-folder tree was ambiguous —
-// getAllByTestId(...)[0] only worked by DOM-order accident). Build the id
-// the same way FolderTree.tsx itself does, from the folder's own id.
-export const folderCreateButtonTestId = (folderId: string): string => `folder-create-button-${folderId}`;
-export const folderRenameButtonTestId = (folderId: string): string => `folder-rename-button-${folderId}`;
-export const folderDeleteButtonTestId = (folderId: string): string => `folder-delete-button-${folderId}`;
 
 export const TEXT_CONTENT = {
   DELETE_MODAL_TITLE: 'Delete annotation?',

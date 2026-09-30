@@ -11,7 +11,7 @@ const THUMBNAIL_SCALE = 0.3;
 // import inside the render effect's own `try`/`catch` (below), the same
 // place a real "can't load this PDF" failure is already handled, rather
 // than a static top-level import that would crash every test importing this
-// component (directly or via FileGrid.tsx/RecentSection.tsx) regardless of
+// component (directly or via RecentSection.tsx) regardless of
 // whether it ever renders a real thumbnail. `usePdfDocument.ts` doesn't need
 // this treatment: no test imports it (PDFViewer.test.tsx injects an
 // already-loaded `pdfDoc` instead), so it's never hit this under `node --test`.

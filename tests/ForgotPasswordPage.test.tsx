@@ -104,3 +104,31 @@ test('design req 3.3 (no silent failures): a resetPasswordForEmail error is surf
     assert.equal(screen.getByTestId(TEST_IDS.FORGOT_PASSWORD_ERROR).textContent, 'Unable to send reset email');
   });
 });
+
+test('an invalid email shows the email validation message without calling resetPasswordForEmail', () => {
+  const resetPasswordForEmail = mock.fn(async () => ({ data: {}, error: null }));
+  renderForgotPasswordPage({ resetPasswordForEmail });
+
+  fireEvent.change(screen.getByTestId(TEST_IDS.FORGOT_PASSWORD_EMAIL_INPUT), { target: { value: 'nope' } });
+  fireEvent.submit(screen.getByTestId(TEST_IDS.FORGOT_PASSWORD_FORM));
+
+  assert.match(screen.getByTestId(TEST_IDS.FORGOT_PASSWORD_ERROR).textContent ?? '', /'@'/);
+  assert.equal(resetPasswordForEmail.mock.callCount(), 0);
+});
+
+test('the "Back to login" button navigates to /login, from the form and from the sent card', async () => {
+  const resetPasswordForEmail = mock.fn(async () => ({ data: {}, error: null }));
+  renderForgotPasswordPage({ resetPasswordForEmail });
+  fireEvent.click(screen.getByTestId(TEST_IDS.FORGOT_PASSWORD_BACK_LINK));
+  assert.ok(screen.getByTestId('login-landed'));
+  cleanup();
+
+  renderForgotPasswordPage({ resetPasswordForEmail });
+  fireEvent.change(screen.getByTestId(TEST_IDS.FORGOT_PASSWORD_EMAIL_INPUT), { target: { value: 'user@example.com' } });
+  fireEvent.submit(screen.getByTestId(TEST_IDS.FORGOT_PASSWORD_FORM));
+  await waitFor(() => {
+    assert.ok(screen.getByTestId(TEST_IDS.FORGOT_PASSWORD_LOGIN_LINK));
+  });
+  fireEvent.click(screen.getByTestId(TEST_IDS.FORGOT_PASSWORD_LOGIN_LINK));
+  assert.ok(screen.getByTestId('login-landed'));
+});

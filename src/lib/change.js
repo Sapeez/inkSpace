@@ -35,10 +35,3 @@ export function moveAttachmentToFolder(attachmentId, folderId) {
   });
 }
 
-export function changeWorkspace(payload) {
-  return request('/api/workspace', {
-    method: 'PATCH',
-    body: JSON.stringify(payload),
-  });
-}
-

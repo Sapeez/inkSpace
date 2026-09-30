@@ -15,7 +15,3 @@ export function fetchAttachments(params = {}) {
 export function fetchFolders() {
   return request('/api/folders');
 }
-
-export function fetchWorkspace() {
-  return request('/api/workspace');
-}

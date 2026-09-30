@@ -17,8 +17,3 @@ test('design req 3.3: the "files" variant shows a distinct no-files message', ()
   assert.match(node.textContent ?? '', /no files/i);
 });
 
-test('design req 3.3: the "folders" variant shows a distinct no-folders message', () => {
-  render(<EmptyState variant="folders" testId="empty-folders" />);
-  const node = screen.getByTestId('empty-folders');
-  assert.match(node.textContent ?? '', /no folders/i);
-});

@@ -137,3 +137,67 @@ test('the eye button toggles password visibility on the login form', async () =>
   fireEvent.click(toggle);
   assert.equal(input.type, 'password');
 });
+
+test('an invalid email shows the email validation message and skips the rate-limit check and signInWithPassword', () => {
+  globalThis.fetch = (async () => {
+    throw new Error('fetch should not be called when client-side validation fails');
+  }) as typeof fetch;
+  const signInWithPassword = mock.fn(async () => ({ data: { session: null }, error: null }));
+  renderLoginPage({ signInWithPassword });
+
+  fireEvent.change(screen.getByTestId(TEST_IDS.LOGIN_EMAIL_INPUT), { target: { value: 'not-an-email' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.LOGIN_PASSWORD_INPUT), { target: { value: 'password123' } });
+  fireEvent.submit(screen.getByTestId(TEST_IDS.LOGIN_FORM));
+
+  assert.match(screen.getByTestId(TEST_IDS.LOGIN_ERROR).textContent ?? '', /'@'/);
+  assert.equal(signInWithPassword.mock.callCount(), 0);
+});
+
+test('a missing password shows "Password is required", and editing a field clears the tooltip', () => {
+  const signInWithPassword = mock.fn(async () => ({ data: { session: null }, error: null }));
+  renderLoginPage({ signInWithPassword });
+
+  fireEvent.change(screen.getByTestId(TEST_IDS.LOGIN_EMAIL_INPUT), { target: { value: 'user@example.com' } });
+  fireEvent.submit(screen.getByTestId(TEST_IDS.LOGIN_FORM));
+  assert.equal(screen.getByTestId(TEST_IDS.LOGIN_ERROR).textContent, 'Password is required');
+
+  fireEvent.change(screen.getByTestId(TEST_IDS.LOGIN_PASSWORD_INPUT), { target: { value: 'x' } });
+  assert.equal(screen.queryByTestId(TEST_IDS.LOGIN_ERROR), null);
+});
+
+test('the login form does not enforce the signup password policy (existing accounts may predate it)', async () => {
+  mockLoginAttemptAllowed();
+  const signInWithPassword = mock.fn(async () => ({ data: { session: { access_token: 'token' } }, error: null }));
+  renderLoginPage({ signInWithPassword });
+
+  fireEvent.change(screen.getByTestId(TEST_IDS.LOGIN_EMAIL_INPUT), { target: { value: 'user@example.com' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.LOGIN_PASSWORD_INPUT), { target: { value: 'abc' } });
+  fireEvent.submit(screen.getByTestId(TEST_IDS.LOGIN_FORM));
+
+  await waitFor(() => {
+    assert.equal(signInWithPassword.mock.callCount(), 1);
+  });
+});
+
+test('the "Forgot your password?" and "Sign up" links navigate to their pages', async () => {
+  const signInWithPassword = mock.fn(async () => ({ data: {}, error: null }));
+  const auth = { signInWithPassword };
+  const view = (path: string) =>
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <Routes>
+          <Route path="/login" element={<LoginPage auth={auth as never} />} />
+          <Route path={path} element={<div data-testid="landed" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+  view('/forgot-password');
+  fireEvent.click(screen.getByTestId(TEST_IDS.LOGIN_FORGOT_PASSWORD_LINK));
+  assert.ok(screen.getByTestId('landed'));
+  cleanup();
+
+  view('/signup');
+  fireEvent.click(screen.getByTestId(TEST_IDS.LOGIN_SIGNUP_LINK));
+  assert.ok(screen.getByTestId('landed'));
+});
