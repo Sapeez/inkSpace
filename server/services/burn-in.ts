@@ -1,17 +1,28 @@
-import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from 'pdf-lib';
+import {
+  PDFDocument,
+  PDFFont,
+  PDFPage,
+  StandardFonts,
+  concatTransformationMatrix,
+  popGraphicsState,
+  pushGraphicsState,
+  rgb,
+} from 'pdf-lib';
 import type { RGB } from 'pdf-lib';
-import { downloadAttachmentBytes } from './storage.js';
 import {
   boundingBoxTopLeft,
   buildTransformedPathString,
   buildTransformedPolygonString,
+  displayToUserMatrix,
   flipY,
   makeLocalPointMapper,
   minOf,
   numericPointsIn,
+  rotationAboutMatrix,
 } from './annotationGeometry.js';
 import { decodeValidatedSignatureImage } from './signatureImageValidation.js';
-import type { AnnotationObjectJson, BurnInParams, BurnInResult } from './burn-in-types.js';
+import type { Matrix } from './annotationGeometry.js';
+import type { AnnotationObjectJson, BurnInPage, BurnInParams, BurnInResult } from './burn-in-types.js';
 
 export type { AnnotationObjectJson, BurnInPage, BurnInParams, BurnInResult } from './burn-in-types.js';
 
@@ -22,6 +33,19 @@ function hexToRgb(hex: string): RGB {
   return rgb(r, g, b);
 }
 
+// Fill/stroke options shared by every closed shape. `color`/`borderColor` are
+// left out entirely (not set to `undefined`) when absent: pdf-lib's option
+// types reject an explicit `undefined` under `exactOptionalPropertyTypes`.
+function paintOptions(object: AnnotationObjectJson) {
+  return {
+    ...(object.fill ? { color: hexToRgb(object.fill) } : {}),
+    ...(object.stroke ? { borderColor: hexToRgb(object.stroke) } : {}),
+    borderWidth: object.stroke ? object.strokeWidth ?? 1 : 0,
+    opacity: object.opacity ?? 1,
+    borderOpacity: object.opacity ?? 1,
+  };
+}
+
 function drawRect(page: PDFPage, pageHeight: number, object: AnnotationObjectJson): void {
   const box = boundingBoxTopLeft(object);
   page.drawRectangle({
@@ -29,11 +53,7 @@ function drawRect(page: PDFPage, pageHeight: number, object: AnnotationObjectJso
     y: flipY(box.y + box.height, pageHeight),
     width: box.width,
     height: box.height,
-    color: object.fill ? hexToRgb(object.fill) : undefined,
-    borderColor: object.stroke ? hexToRgb(object.stroke) : undefined,
-    borderWidth: object.stroke ? object.strokeWidth ?? 1 : 0,
-    opacity: object.opacity ?? 1,
-    borderOpacity: object.opacity ?? 1,
+    ...paintOptions(object),
   });
 }
 
@@ -46,11 +66,7 @@ function drawEllipseShape(page: PDFPage, pageHeight: number, object: AnnotationO
     y: centerY,
     xScale: box.width / 2,
     yScale: box.height / 2,
-    color: object.fill ? hexToRgb(object.fill) : undefined,
-    borderColor: object.stroke ? hexToRgb(object.stroke) : undefined,
-    borderWidth: object.stroke ? object.strokeWidth ?? 1 : 0,
-    opacity: object.opacity ?? 1,
-    borderOpacity: object.opacity ?? 1,
+    ...paintOptions(object),
   });
 }
 
@@ -105,11 +121,7 @@ function drawPathShape(page: PDFPage, pageHeight: number, object: AnnotationObje
     x: 0,
     y: pageHeight,
     scale: 1,
-    color: object.fill ? hexToRgb(object.fill) : undefined,
-    borderColor: object.stroke ? hexToRgb(object.stroke) : undefined,
-    borderWidth: object.stroke ? object.strokeWidth ?? 1 : 0,
-    opacity: object.opacity ?? 1,
-    borderOpacity: object.opacity ?? 1,
+    ...paintOptions(object),
   });
 }
 
@@ -130,11 +142,7 @@ function drawPolygonShape(page: PDFPage, pageHeight: number, object: AnnotationO
     x: 0,
     y: pageHeight,
     scale: 1,
-    color: object.fill ? hexToRgb(object.fill) : undefined,
-    borderColor: object.stroke ? hexToRgb(object.stroke) : undefined,
-    borderWidth: object.stroke ? object.strokeWidth ?? 1 : 0,
-    opacity: object.opacity ?? 1,
-    borderOpacity: object.opacity ?? 1,
+    ...paintOptions(object),
   });
 }
 
@@ -174,13 +182,20 @@ function fontFamilyKey(fontFamily: string | undefined): FontFamilyKey {
   return 'helvetica';
 }
 
-const STANDARD_FONTS: Record<FontFamilyKey, StandardFonts> = {
-  helvetica: StandardFonts.Helvetica,
-  times: StandardFonts.TimesRoman,
-  courier: StandardFonts.Courier,
+// [regular, bold, italic, bold-italic] per family.
+const STANDARD_FONTS: Record<FontFamilyKey, [StandardFonts, StandardFonts, StandardFonts, StandardFonts]> = {
+  helvetica: [StandardFonts.Helvetica, StandardFonts.HelveticaBold, StandardFonts.HelveticaOblique, StandardFonts.HelveticaBoldOblique],
+  times: [StandardFonts.TimesRoman, StandardFonts.TimesRomanBold, StandardFonts.TimesRomanItalic, StandardFonts.TimesRomanBoldItalic],
+  courier: [StandardFonts.Courier, StandardFonts.CourierBold, StandardFonts.CourierOblique, StandardFonts.CourierBoldOblique],
 };
 
-type FontResolver = (fontFamily: string | undefined) => PDFFont;
+function fontVariantIndex(object: AnnotationObjectJson): number {
+  const bold = String(object.fontWeight ?? 'normal').toLowerCase() === 'bold' || Number(object.fontWeight) >= 600;
+  const italic = ['italic', 'oblique'].includes(String(object.fontStyle ?? 'normal').toLowerCase());
+  return (bold ? 1 : 0) + (italic ? 2 : 0);
+}
+
+type FontResolver = (object: AnnotationObjectJson) => PDFFont;
 
 function drawTextbox(page: PDFPage, pageHeight: number, object: AnnotationObjectJson, font: PDFFont): void {
   const box = boundingBoxTopLeft(object);
@@ -199,6 +214,17 @@ function drawTextbox(page: PDFPage, pageHeight: number, object: AnnotationObject
       color,
       opacity: object.opacity ?? 1,
     });
+    if (object.underline && line.length > 0) {
+      // Fabric draws the underline a little below the baseline, ~fontSize/15 thick.
+      const underlineY = flipY(baselineCanvasY + fontSize * 0.1, pageHeight);
+      page.drawLine({
+        start: { x: box.x, y: underlineY },
+        end: { x: box.x + font.widthOfTextAtSize(line, fontSize), y: underlineY },
+        thickness: Math.max(fontSize / 15, 0.5),
+        color,
+        opacity: object.opacity ?? 1,
+      });
+    }
   });
 }
 
@@ -229,6 +255,16 @@ async function drawImageShape(
   });
 }
 
+// Runs `draw` inside a graphics-state `cm` transform, then restores it.
+async function withTransform(page: PDFPage, matrix: Matrix, draw: () => Promise<void> | void): Promise<void> {
+  page.pushOperators(pushGraphicsState(), concatTransformationMatrix(...matrix));
+  try {
+    await draw();
+  } finally {
+    page.pushOperators(popGraphicsState());
+  }
+}
+
 async function drawAnnotationObject(
   pdfDoc: PDFDocument,
   page: PDFPage,
@@ -236,7 +272,27 @@ async function drawAnnotationObject(
   resolveFont: FontResolver,
   object: AnnotationObjectJson,
 ): Promise<void> {
-  switch (object.type) {
+  // A rotated object (Fabric `angle`, about its left/top origin point): draw it
+  // unrotated, inside a rotation around that point.
+  const angle = (((object.angle ?? 0) % 360) + 360) % 360;
+  if (angle !== 0) {
+    const matrix = rotationAboutMatrix(object.left ?? 0, flipY(object.top ?? 0, pageHeight), angle);
+    await withTransform(page, matrix, () => drawUnrotatedObject(pdfDoc, page, pageHeight, resolveFont, object));
+    return;
+  }
+  await drawUnrotatedObject(pdfDoc, page, pageHeight, resolveFont, object);
+}
+
+async function drawUnrotatedObject(
+  pdfDoc: PDFDocument,
+  page: PDFPage,
+  pageHeight: number,
+  resolveFont: FontResolver,
+  object: AnnotationObjectJson,
+): Promise<void> {
+  // Fabric 6+/7 serializes `type` as the class name ("Rect", "Textbox", ...),
+  // not lowercase — normalize so both forms match.
+  switch (object.type.toLowerCase()) {
     case 'rect':
       drawRect(page, pageHeight, object);
       return;
@@ -255,7 +311,7 @@ async function drawAnnotationObject(
     case 'textbox':
     case 'i-text':
     case 'text':
-      drawTextbox(page, pageHeight, object, resolveFont(object.fontFamily));
+      drawTextbox(page, pageHeight, object, resolveFont(object));
       return;
     case 'image':
       await drawImageShape(pdfDoc, page, pageHeight, object);
@@ -273,13 +329,26 @@ async function drawAnnotationObject(
 // for Download (D1-D3) or forward it, unmodified, to the save endpoint
 // (task 3.3) — the same burn-in result serves both flows.
 export async function applyBurnIn({ attachmentId, pages }: BurnInParams): Promise<BurnInResult> {
+  // Imported lazily: storage.ts builds the Supabase client (needs env vars) at
+  // load time, which would otherwise make `burnInPdfBytes` untestable.
+  const { downloadAttachmentBytes } = await import('./storage.js');
   const { filename, bytes } = await downloadAttachmentBytes(attachmentId);
+  const outputBytes = await burnInPdfBytes(bytes, pages);
+  return {
+    filename,
+    mimeType: 'application/pdf',
+    pdfBase64: Buffer.from(outputBytes).toString('base64'),
+  };
+}
+
+// Storage-free core of `applyBurnIn`, exported so it's testable without Supabase.
+export async function burnInPdfBytes(bytes: Uint8Array, pages: BurnInPage[]): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.load(bytes);
-  const embedded = new Map<FontFamilyKey, PDFFont>();
+  const embedded = new Map<FontFamilyKey, PDFFont[]>();
   for (const key of Object.keys(STANDARD_FONTS) as FontFamilyKey[]) {
-    embedded.set(key, await pdfDoc.embedFont(STANDARD_FONTS[key]));
+    embedded.set(key, await Promise.all(STANDARD_FONTS[key].map((font) => pdfDoc.embedFont(font))));
   }
-  const resolveFont: FontResolver = (fontFamily) => embedded.get(fontFamilyKey(fontFamily))!;
+  const resolveFont: FontResolver = (object) => embedded.get(fontFamilyKey(object.fontFamily))![fontVariantIndex(object)]!;
   const pageCount = pdfDoc.getPageCount();
 
   for (const { pageNumber, objects } of pages) {
@@ -289,16 +358,20 @@ export async function applyBurnIn({ attachmentId, pages }: BurnInParams): Promis
       });
     }
     const page = pdfDoc.getPage(pageNumber - 1);
-    const pageHeight = page.getHeight();
-    for (const object of objects) {
-      await drawAnnotationObject(pdfDoc, page, pageHeight, resolveFont, object);
-    }
+    // Annotations are authored against the page as *displayed*, so a page with
+    // `/Rotate` gets its objects drawn inside a display→user transform, with y
+    // flipped against the displayed height.
+    const rotation = page.getRotation().angle;
+    const { width, height } = page.getSize();
+    const pageHeight = rotation % 180 === 0 ? height : width;
+    const drawAll = async () => {
+      for (const object of objects) {
+        await drawAnnotationObject(pdfDoc, page, pageHeight, resolveFont, object);
+      }
+    };
+    if (rotation % 360 === 0) await drawAll();
+    else await withTransform(page, displayToUserMatrix(rotation, width, height), drawAll);
   }
 
-  const outputBytes = await pdfDoc.save();
-  return {
-    filename,
-    mimeType: 'application/pdf',
-    pdfBase64: Buffer.from(outputBytes).toString('base64'),
-  };
+  return pdfDoc.save();
 }

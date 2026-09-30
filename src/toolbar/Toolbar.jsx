@@ -10,6 +10,7 @@ import {
   CloudIcon,
   SaveIcon,
   DownloadIcon,
+  DocumentEditorIcon,
 } from './toolbarIcons.tsx';
 import StyleControls from './StyleControls.tsx';
 import SignatureUploader from '../annotation-canvas/SignatureUploader.tsx';
@@ -41,6 +42,12 @@ const FILLABLE_TOOLS = new Set(['rectangle', 'ellipse', 'cloud']);
 // Text has no stroke, so its style popover is color only.
 const NO_STROKE_WIDTH_TOOLS = new Set(['text']);
 
+const DRAFT_STATUS_TEXT = {
+  saving: 'Saving draft…',
+  saved: 'Draft saved',
+  error: "Couldn't save draft — retrying",
+};
+
 // 7.3/7.4: cross-account sharing (and the edit/view/owner role split it
 // required) is cut entirely — every caller who can reach a file is its
 // owner, so there's a single always-editable toolbar now, not a role
@@ -48,6 +55,7 @@ const NO_STROKE_WIDTH_TOOLS = new Set(['text']);
 export default function Toolbar({
   attachmentName,
   onBack,
+  draftStatus = 'idle',
   activeTool,
   onToolChange,
   style,
@@ -57,6 +65,7 @@ export default function Toolbar({
   downloading,
   downloadError,
   onSaveClick,
+  onDocumentEditor = /** @type {(() => void) | undefined} */ (undefined),
 }) {
   return (
     <header className="toolbar" role="group" aria-label="Toolbar" data-testid="toolbar">
@@ -91,8 +100,31 @@ export default function Toolbar({
           </div>
         ))}
         <SignatureUploader onPlace={onSignaturePlace} />
+        {onDocumentEditor && (
+          <div className="toolbar-tool-slot">
+            <button
+              type="button"
+              className="toolbar-tool-button"
+              data-testid="document-editor-button"
+              aria-label="Document editor"
+              onClick={onDocumentEditor}
+            >
+              <DocumentEditorIcon />
+              <span className="file-button-tooltip">Document editor</span>
+            </button>
+          </div>
+        )}
       </div>
       <div className="toolbar-actions">
+        {draftStatus && DRAFT_STATUS_TEXT[draftStatus] && (
+          <span
+            className={`toolbar-draft-status${draftStatus === 'error' ? ' toolbar-draft-status--error' : ''}`}
+            role="status"
+            data-testid="draft-status"
+          >
+            {DRAFT_STATUS_TEXT[draftStatus]}
+          </span>
+        )}
         {downloadError && (
           <span className="toolbar-action-error" role="alert" data-testid="download-error">
             {downloadError}

@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { requirePermission, canRead, canWrite, isOwner } from '../middleware/permissions.js';
-import { saveAttachment, downloadAttachment, listAttachments, deleteAttachment } from '../services/storage.js';
+import { saveAttachment, downloadAttachment, listAttachments, deleteAttachment, editAttachmentPages } from '../services/storage.js';
+import { validatePageSpecs } from '../services/documentEdit.js';
+import { getDraft, saveDraft } from '../services/drafts.js';
 import { validateFilename } from '../../src/utils/filenameUtils.js';
 import { MAX_UPLOAD_BYTES, formatMegabytes } from '../../src/utils/uploadLimits.js';
 
@@ -63,6 +65,45 @@ router.post('/', async (req, res, next) => {
 
     const saved = await saveAttachment({ ownerId, filename, pdfBase64 });
     res.status(201).json(saved);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Autosaved annotation draft (one per attachment, owner-only like the file
+// itself). `GET` returns `{ pages: [], updatedAt: null }` when none exists.
+router.get('/:id/draft', requirePermission(canRead), async (req, res, next) => {
+  try {
+    const draft = await getDraft(req.params.id);
+    res.json(draft ?? { pages: [], updatedAt: null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/:id/draft', requirePermission(canWrite), async (req, res, next) => {
+  try {
+    const draft = await saveDraft(req.params.id, req.body?.pages);
+    res.json({ updatedAt: draft.updatedAt });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Document editor: `{ uploads: string[] (base64 PDFs), pages: [{ source, pageIndex, rotate }] }`
+// describes the file's new page list; the stored PDF is replaced in place.
+router.post('/:id/pages', requirePermission(canWrite), async (req, res, next) => {
+  try {
+    const { uploads = [], pages } = req.body ?? {};
+    if (!Array.isArray(uploads) || !uploads.every((item) => typeof item === 'string')) {
+      return res.status(400).json({ message: 'uploads must be an array of base64 strings' });
+    }
+    const specError = validatePageSpecs(pages, uploads.length);
+    if (specError) {
+      return res.status(400).json({ message: specError });
+    }
+    const result = await editAttachmentPages(req.params.id, uploads, pages);
+    res.json(result);
   } catch (err) {
     next(err);
   }

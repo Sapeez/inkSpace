@@ -1,4 +1,4 @@
-import test, { afterEach } from 'node:test';
+import test, { afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupJsdom } from './setup/jsdom';
 import { TEST_IDS } from './consts/inkSpace';
@@ -125,4 +125,28 @@ test('the style popover shows color and width for shape tools, color only for te
   );
   assert.ok(screen.getByTestId(TEST_IDS.STYLE_COLOR_PICKER));
   assert.equal(screen.queryByTestId(TEST_IDS.STYLE_WIDTH_PICKER), null);
+});
+
+test('the Document editor button opens the editor when clicked', () => {
+  const onDocumentEditor = mock.fn();
+  render(
+    <Toolbar
+      attachmentName="report.pdf"
+      onBack={() => {}}
+      activeTool="pen"
+      onToolChange={() => {}}
+      style={DEFAULT_ANNOTATION_STYLE}
+      onStyleChange={() => {}}
+      onSignaturePlace={() => false}
+      onDownload={() => {}}
+      downloading={false}
+      downloadError={null}
+      onSaveClick={() => {}}
+      onDocumentEditor={onDocumentEditor}
+    />,
+  );
+  const button = screen.getByTestId('document-editor-button');
+  assert.ok(button.closest('[data-testid="annotation-toolbar"]'), 'the button sits in the left-hand tools group with the annotation tools');
+  fireEvent.click(button);
+  assert.equal(onDocumentEditor.mock.callCount(), 1);
 });

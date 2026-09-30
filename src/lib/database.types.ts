@@ -14,6 +14,32 @@ export type Database = {
   }
   public: {
     Tables: {
+      attachment_drafts: {
+        Row: {
+          attachment_id: string
+          pages: Json
+          updated_at: string
+        }
+        Insert: {
+          attachment_id: string
+          pages?: Json
+          updated_at?: string
+        }
+        Update: {
+          attachment_id?: string
+          pages?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attachment_drafts_attachment_id_fkey"
+            columns: ["attachment_id"]
+            isOneToOne: true
+            referencedRelation: "attachments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       attachments: {
         Row: {
           annotations: Json

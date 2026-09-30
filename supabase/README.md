@@ -14,12 +14,14 @@ npm run supabase:migrate
 
 ## Tables
 
-| Table           | Purpose                                      |
-| --------------- | -------------------------------------------- |
-| `attachments`   | File metadata, storage path, annotation JSON |
-| `permissions`   | Per-user read/write/admin + burn-in flag     |
+| Table                | Purpose                                                                 |
+| -------------------- | ----------------------------------------------------------------------- |
+| `attachments`        | File metadata, storage path, owner (`owner_id`), optional `folder_id`    |
+| `attachment_drafts`  | Autosaved annotation draft, one row per attachment (cascade-deleted)     |
+| `workspaces`         | One per user, created by a trigger on signup                             |
+| `folders`            | Folder rows (API exists; the UI no longer surfaces them)                 |
 
-See `migrations/20250824000000_attachments_permissions.sql` for the full DDL.
+Attachments are owner-only; the old `shares`/`permissions` tables and `share_role` enum were dropped (`20260929150000_drop_shares.sql`). Migrations are additive — add a new file rather than editing an applied one.
 
 ## Auth email templates
 

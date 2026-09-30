@@ -13,6 +13,7 @@ export interface AnnotationObjectJson {
   height?: number;
   scaleX?: number;
   scaleY?: number;
+  angle?: number;
   originX?: string;
   originY?: string;
   fill?: string | null;
@@ -28,6 +29,9 @@ export interface AnnotationObjectJson {
   text?: string;
   fontSize?: number;
   fontFamily?: string;
+  fontWeight?: string | number;
+  fontStyle?: string;
+  underline?: boolean;
   lineHeight?: number;
   src?: string;
 }

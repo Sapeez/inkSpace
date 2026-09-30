@@ -581,6 +581,9 @@ html, body {
 .modal-overlay {
   position: fixed;
   inset: 0;
+  /* Above the annotation canvases (z-index 2), the floating text-markup
+     toolbar (50) and every in-page popover, so a modal always covers them. */
+  z-index: 100;
   display: grid;
   place-items: center;
   background: rgb(0 0 0 / 40%);
@@ -1053,70 +1056,78 @@ html, body {
   text-align: center;
 }
 
-.settings-page {
-  max-width: 640px;
-  margin: 0 auto;
-  padding: 2rem 1rem 4rem;
-}
-
-.settings-header {
+/* Settings modal: opens over the workspace, inheriting its purple accent. */
+.settings-modal {
+  width: 440px;
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100vh - 2rem);
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 1.5rem;
-}
-
-.settings-header h1 {
-  margin: 0;
-}
-
-.settings-section {
   background: var(--card-bg);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-float);
-  padding: 1.5rem;
-  margin-bottom: 1.5rem;
+  overflow: hidden;
 }
 
-.settings-section h2 {
-  margin: 0 0 1rem;
-  font-size: 1.0625rem;
+.settings-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-modal-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.settings-modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.settings-modal-close:hover {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+
+.settings-modal-body {
+  padding: 0.5rem 1.5rem 1.5rem;
+  overflow-y: auto;
+}
+
+.settings-section {
+  padding: 0.75rem 0;
 }
 
 .settings-section h3 {
-  margin: 1.5rem 0 0.5rem;
+  margin: 0 0 0.75rem;
   font-size: 0.9375rem;
+  color: var(--text-primary);
+}
+
+.settings-divider {
+  height: 0;
+  margin: 0.5rem 0;
+  border: none;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .settings-form {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  max-width: 360px;
-}
-
-.settings-success {
-  font-size: 0.8125rem;
-  color: #166534;
-}
-
-.settings-identities-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
-}
-
-.settings-identity-item {
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  text-transform: capitalize;
-}
-
-.settings-danger-zone {
-  border: 1px solid #fecaca;
 }
 
 .settings-delete-account-button {
@@ -1136,14 +1147,15 @@ html, body {
 .workspace-account-bar {
   display: flex;
   justify-content: flex-end;
-  margin: 1rem 1rem 0.75rem;
+  margin-bottom: 1rem;
 }
 
 .workspace-body {
   display: flex;
   gap: 1rem;
-  margin: 0 1rem 1rem;
-  align-items: flex-start;
+  margin: 1rem;
+  flex: 1;
+  align-items: stretch;
 }
 
 .workspace-main {
@@ -1153,6 +1165,12 @@ html, body {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-float);
   padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-main > .dots-container {
+  flex: 1;
 }
 
 .workspace-toolbar {
@@ -1163,8 +1181,21 @@ html, body {
   flex-wrap: wrap;
 }
 
+/* Same height as the Upload button / search input so the row reads as one line. */
+.workspace-toolbar-title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 2.25rem;
+}
+
+.workspace-toolbar .search-bar {
+  margin-left: auto;
+}
+
 .workspace-upload-button {
-  padding: 0.625rem 1.25rem;
+  height: 2.25rem;
+  padding: 0 1.25rem;
   border: none;
   border-radius: var(--radius-pill);
   background: var(--accent);
@@ -1184,13 +1215,16 @@ html, body {
 
 .workspace-upload-error {
   display: block;
+  white-space: pre-line;
+  text-align: right;
   margin-bottom: 1rem;
   font-size: 0.8125rem;
   color: #b91c1c;
 }
 
 .search-bar-input {
-  padding: 0.5rem 0.875rem;
+  height: 2.25rem;
+  padding: 0 0.875rem;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-pill);
   min-width: 220px;
@@ -1201,13 +1235,11 @@ html, body {
   margin-bottom: 1.5rem;
 }
 
-.recent-section h2 {
-  font-size: 1rem;
-  margin: 0 0 0.75rem;
-}
-
 .recent-section-items {
   display: flex;
+  /* `safe` falls back to start-aligned if the row overflows, so the first
+     thumbnail is never clipped off the left edge. */
+  justify-content: safe center;
   gap: 1rem;
   overflow-x: auto;
   list-style: none;
@@ -1265,22 +1297,69 @@ html, body {
   font-size: 0.875rem;
 }
 
+/* Header and rows share one column template so each column's left edge is
+   identical in both: Name | Last modified | actions. */
+.file-list {
+  --file-list-columns: minmax(0, 1fr) 7rem 6.75rem;
+}
+
 .file-list-header {
-  display: flex;
-  gap: 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid var(--border-subtle);
+  display: grid;
+  grid-template-columns: var(--file-list-columns);
+  column-gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem;
+  border-radius: var(--radius-md);
+  background: #f3f4f8;
   margin-bottom: 0.5rem;
 }
 
 .file-list-sort-button {
   border: none;
   background: none;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text-primary);
   cursor: pointer;
   padding: 0.25rem 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* Header cells share their widths with the row cells below so the columns line up. */
+.file-list-header-name {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+.file-list-header-date {
+  position: relative;
+  width: 7rem;
+  flex-shrink: 0;
+  justify-content: flex-start;
+}
+
+/* Divider between the Name and Last modified columns, drawn in the flex gap
+   so the label still lines up with the dates in the rows below. */
+.file-list-header-date::before {
+  content: '';
+  position: absolute;
+  top: 0.125rem;
+  bottom: 0.125rem;
+  left: -0.25rem;
+  width: 1px;
+  background: #c9ced9;
+}
+
+.file-list-header-actions {
+  width: 6.75rem;
+  flex-shrink: 0;
+}
+
+.file-list-sort-arrow {
+  flex-shrink: 0;
 }
 
 .file-list-sort-button--active {
@@ -1288,6 +1367,10 @@ html, body {
 }
 
 .file-list-items {
+  /* Reserve room for a full page (5 rows) so the footer stays put on a short
+     last page or a narrow search result. Keep in sync with PAGE_SIZE. */
+  --file-list-row-height: 3.375rem;
+  min-height: calc(5 * var(--file-list-row-height));
   list-style: none;
   margin: 0;
   padding: 0;
@@ -1296,11 +1379,12 @@ html, body {
 }
 
 .file-list-item {
-  display: flex;
+  height: var(--file-list-row-height);
+  display: grid;
+  grid-template-columns: var(--file-list-columns);
+  column-gap: 0.5rem;
   align-items: center;
-  gap: 1rem;
   padding: 0.625rem 0.5rem;
-  border-bottom: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   transition: background-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
 }
@@ -1343,57 +1427,71 @@ html, body {
 .file-list-item-date {
   font-size: 0.8125rem;
   color: var(--text-secondary);
+  width: 7rem;
   flex-shrink: 0;
 }
 
 .file-actions {
+  width: 6.75rem;
+  flex-shrink: 0;
+  justify-content: flex-end;
   display: flex;
   align-items: center;
   gap: 0.375rem;
   flex-wrap: wrap;
 }
 
+.file-list-footer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+}
+
+.file-list-total {
+  position: absolute;
+  left: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.file-list-page-indicator {
+  min-width: 6rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.file-list-page-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.file-list-page-button:hover:not(:disabled),
+.file-list-page-button:focus-visible {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.file-list-page-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .file-action-error {
   color: #d64545;
   font-size: 0.75rem;
-}
-
-/* Edit — Uiverse (andrew-demchenk0) */
-.file-edit-button {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 0;
-  height: 32px;
-  width: 32px;
-  border: none;
-  background: transparent;
-  border-radius: 20px;
-  cursor: pointer;
-  position: relative;
-}
-
-.file-edit-icon {
-  width: 24px;
-  height: 24px;
-}
-
-.file-edit-button:hover .file-edit-icon g {
-  stroke: #6d1fa3;
-}
-
-.file-edit-button:hover .file-edit-icon {
-  animation: file-edit-wiggle 1s linear infinite;
-}
-
-@keyframes file-edit-wiggle {
-  25% {
-    transform: translateX(-1px);
-  }
-
-  75% {
-    transform: translateX(1px);
-  }
 }
 
 /* Download — Uiverse (ZAKARIAE48CHELLE); tooltip shows the file's size */
@@ -1497,33 +1595,9 @@ html, body {
 }
 
 .file-download-button:hover .file-button-tooltip,
-.file-edit-button:hover .file-button-tooltip,
 .file-delete-button:hover .file-button-tooltip {
   opacity: 1;
   transform: translateY(-2rem);
-}
-
-.viewer-preview-header {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin: 1rem 1rem 0;
-  padding: 0.75rem 1.25rem;
-  border-radius: var(--radius-lg);
-  background: var(--card-bg);
-  box-shadow: var(--shadow-float);
-}
-
-.viewer-preview-name {
-  flex: 1;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.viewer-preview-back {
-  color: var(--accent);
-  font-weight: 600;
-  text-decoration: none;
 }
 
 /* Login / signup — Uiverse-style rounded card with the frosted-purple texture */
@@ -1851,7 +1925,13 @@ html, body {
   --accent: rgb(130 109 180);
   --accent-hover: rgb(110 90 160);
   --accent-soft: rgb(130 109 180 / 15%);
-  min-height: 100vh;
+  /* Scale the whole page (buttons, icons, cards, text) up uniformly; shrink
+     min-height by the inverse so the page still fills the viewport exactly. */
+  --workspace-scale: 1.25;
+  zoom: var(--workspace-scale);
+  min-height: calc(100vh / var(--workspace-scale));
+  display: flex;
+  flex-direction: column;
   background: url('/workspace-background.png') center / cover no-repeat fixed;
 }
 
@@ -2103,4 +2183,391 @@ html, body {
   align-items: center;
   gap: 0.4rem;
   cursor: pointer;
+}
+
+/* Workspace list loader (5 pulsing dots), recolored to the accent palette. */
+.dots-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 64px 0;
+}
+
+.dots-container .dot {
+  height: 20px;
+  width: 20px;
+  margin-right: 10px;
+  border-radius: 10px;
+  background-color: var(--accent-soft);
+  animation: dot-pulse 1.5s infinite ease-in-out;
+}
+
+.dots-container .dot:last-child {
+  margin-right: 0;
+}
+
+.dots-container .dot:nth-child(1) { animation-delay: -0.3s; }
+.dots-container .dot:nth-child(2) { animation-delay: -0.1s; }
+.dots-container .dot:nth-child(3) { animation-delay: 0.1s; }
+
+@keyframes dot-pulse {
+  0%, 100% {
+    transform: scale(0.8);
+    background-color: var(--accent-soft);
+    box-shadow: 0 0 0 0 rgb(230 58 109 / 35%);
+  }
+
+  50% {
+    transform: scale(1.2);
+    background-color: var(--accent);
+    box-shadow: 0 0 0 10px rgb(230 58 109 / 0%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dots-container .dot {
+    animation: none;
+    background-color: var(--accent);
+  }
+}
+
+/* Selectable text over the page (editor only). Sits *under* Fabric's overlay,
+   which steps aside (pointer-events: none on its upper canvas) while the Hand
+   tool's cursor is over bare text — see AnnotationCanvas.jsx. Spans are
+   transparent; only the native selection highlight shows. */
+.pdf-text-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  pointer-events: none;
+}
+
+.pdf-text-layer :is(span, br) {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+  pointer-events: auto;
+}
+
+.pdf-text-layer ::selection {
+  background: rgb(0 100 255 / 30%);
+}
+
+/* The overlay wrapper must not swallow events meant for the text below; its
+   upper canvas opts back in (pointer-events: auto) per tool. */
+.pdf-viewer-page .canvas-container {
+  z-index: 2;
+  pointer-events: none;
+}
+
+.text-markup-toolbar {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  transform: translate(-50%, -100%);
+  background: var(--card-bg);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+}
+
+.text-markup-option {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.625rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.text-markup-option:hover {
+  background: var(--accent-soft);
+}
+
+.text-markup-glyph {
+  font-weight: 700;
+  line-height: 1;
+}
+
+.text-markup-glyph--highlight {
+  background: #ffe14d;
+  padding: 0 2px;
+}
+
+.text-markup-glyph--underline {
+  text-decoration: underline #d64545 2px;
+}
+
+.text-markup-glyph--strikethrough {
+  text-decoration: line-through #d64545 2px;
+}
+
+.toolbar-draft-status {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.toolbar-draft-status--error {
+  color: #b91c1c;
+}
+
+/* Change-password form reuses the signup form's floating-placeholder fields
+   and error tooltips (.login-field / .field-tooltip); only the spacing and
+   the submit row's tooltip anchor are specific to the modal. */
+.settings-password-form {
+  gap: 0;
+}
+
+.settings-password-form .login-field:first-child {
+  margin-top: 0;
+}
+
+.settings-submit-wrap {
+  position: relative;
+  margin-top: 16px;
+}
+
+.settings-submit-wrap .auth-submit-button {
+  width: 100%;
+}
+
+.recent-item-draft,
+.file-list-item-draft {
+  align-self: flex-start;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+/* Name + Draft tag share the name column; the name still truncates first. */
+.file-list-item-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.file-list-item-name-cell .file-list-item-name {
+  flex: 0 1 auto;
+}
+
+.file-list-item-draft {
+  align-self: center;
+  flex-shrink: 0;
+}
+
+/* ── Document editor modal ─────────────────────────────────────────────── */
+.document-editor {
+  width: min(1240px, calc(100vw - 2rem));
+  height: min(900px, calc(100vh - 2rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1.5rem 1.75rem;
+  background: var(--card-bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+}
+
+.document-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.document-editor-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.document-editor-tools {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.document-editor-tool {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: #fff;
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.document-editor-tool:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.document-editor-tool:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.document-editor-tool--danger {
+  color: #b91c1c;
+}
+
+.document-editor-error {
+  margin: 0;
+  white-space: pre-line;
+  font-size: 0.8125rem;
+  color: #b91c1c;
+}
+
+.document-editor-pages {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0.75rem;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  align-content: start;
+  gap: 0.75rem;
+  overflow-y: auto;
+  border-radius: var(--radius-md);
+  background: var(--page-bg);
+}
+
+/* Same highlighted border as the viewer's thumbnails' current page. */
+.document-editor-page {
+  position: relative;
+  padding: 4px;
+  border: 2px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: grab;
+  user-select: none;
+}
+
+.document-editor-page:hover {
+  border-color: var(--accent);
+}
+
+.document-editor-page--current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.document-editor-page--dragging {
+  opacity: 0.4;
+}
+
+.document-editor-page--drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+}
+
+.document-editor-canvas {
+  display: block;
+  width: 100%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 15%);
+  pointer-events: none;
+}
+
+.document-editor-page-number {
+  display: block;
+  margin-top: 4px;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.document-editor-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.625rem;
+}
+
+.document-editor-footer-button {
+  width: 110px;
+}
+
+/* The settings card clips its overflow, so the signup-style pill beside the
+   field (left: 100% + 56px) would be cut off and errors would be invisible.
+   Inside the modal, drop the pill under the field instead. */
+.settings-modal .field-tooltip {
+  top: calc(100% + 6px);
+  left: 0;
+  max-width: 100%;
+  transform: none;
+}
+
+.settings-modal .field-tooltip::before,
+.settings-modal .field-tooltip::after {
+  display: none;
+}
+
+/* Toast: translucent frosted-purple glass, same family as .field-tooltip. */
+.toast {
+  position: fixed;
+  top: 1.5rem;
+  right: 1.5rem;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  max-width: min(22rem, calc(100vw - 3rem));
+  padding: 0.75rem 1.125rem;
+  border: 1px solid rgb(255 255 255 / 60%);
+  border-radius: var(--radius-md);
+  background: rgb(76 58 140 / 65%);
+  backdrop-filter: blur(14px);
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 500;
+  box-shadow: rgb(60 40 120 / 45%) 0 10px 15px -8px;
+  cursor: pointer;
+  animation: toast-in 0.3s ease both;
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  padding: 2px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 25%);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(1.5rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
 }

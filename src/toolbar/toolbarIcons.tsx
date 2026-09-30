@@ -126,6 +126,19 @@ export function SaveIcon() {
   );
 }
 
+// A page (folded corner) with a pencil across its lower right — the Document editor.
+export function DocumentEditorIcon() {
+  return (
+    <IconBase>
+      <path d="M13 3H7a2 2 0 00-2 2v14a2 2 0 002 2h4" />
+      <path d="M13 3l5 5v2.5" />
+      <path d="M13 3v5h5" />
+      <path d="M8.5 12.5h4M8.5 16h2" />
+      <path d="M19.4 13.6a1.4 1.4 0 012 2L16 21l-3 .8.8-3 5.6-5.2z" />
+    </IconBase>
+  );
+}
+
 export function DownloadIcon() {
   return (
     <IconBase>

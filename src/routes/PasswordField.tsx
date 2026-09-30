@@ -8,12 +8,14 @@ interface PasswordFieldProps {
   onChange: (value: string) => void;
   disabled: boolean;
   autoComplete: 'current-password' | 'new-password';
+  // Placeholder / accessible label; defaults to the sign-in/sign-up wording.
+  label?: string;
   errorMessage?: string | undefined;
   errorTestId?: string | undefined;
 }
 
 // Password input with an in-field eye toggle (click once to reveal, again to hide).
-export default function PasswordField({ id, testId, value, onChange, disabled, autoComplete, errorMessage, errorTestId }: PasswordFieldProps) {
+export default function PasswordField({ id, testId, value, onChange, disabled, autoComplete, label = 'Password', errorMessage, errorTestId }: PasswordFieldProps) {
   const [visible, setVisible] = useState(false);
 
   return (
@@ -24,13 +26,13 @@ export default function PasswordField({ id, testId, value, onChange, disabled, a
         type={visible ? 'text' : 'password'}
         className="login-input login-input-password"
         data-testid={testId}
-        placeholder="Password"
+        placeholder={label}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         disabled={disabled}
         autoComplete={autoComplete}
       />
-      <label htmlFor={id} className="login-label">Password</label>
+      <label htmlFor={id} className="login-label">{label}</label>
       {value.length > 0 && (
         <button
           type="button"

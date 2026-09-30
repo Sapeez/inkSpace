@@ -88,6 +88,33 @@ test('fitWidth ignores a stale result if the scale changed while it was still co
   });
 });
 
+test('ctrl + wheel zooms the document (and cancels browser zoom); plain wheel does not', async () => {
+  const fakePage = {
+    getViewport: ({ scale = 1 }: { scale?: number } = {}) => ({ width: 600 * scale, height: 800 * scale }),
+    render: () => ({ promise: Promise.resolve(), cancel: () => {} }),
+  };
+  const fakePdfDoc = { numPages: 1, getPage: () => Promise.resolve(fakePage) };
+  const { container } = render(
+    <PDFViewer pdfDoc={fakePdfDoc as unknown as PDFDocumentProxy} loading={false} error={null} />,
+  );
+  await waitFor(() => {
+    assert.ok(!screen.getByTestId(TEST_IDS.ZOOM_IN_BUTTON).hasAttribute('disabled'), 'still rendering');
+  });
+  const level = () => container.querySelector('.zoom-controls-level')?.textContent;
+  const viewerEl = container.querySelector(`[data-testid="${TEST_IDS.PDF_VIEWER}"]`) as HTMLElement;
+
+  // fireEvent returns false when preventDefault() was called.
+  assert.equal(fireEvent.wheel(viewerEl, { deltaY: -100 }), true);
+  assert.equal(level(), '100%', 'plain wheel must keep scrolling, not zoom');
+
+  assert.equal(fireEvent.wheel(viewerEl, { deltaY: -100, ctrlKey: true }), false);
+  await waitFor(() => assert.equal(level(), '125%'));
+
+  await waitFor(() => assert.ok(!screen.getByTestId(TEST_IDS.ZOOM_OUT_BUTTON).hasAttribute('disabled')));
+  fireEvent.wheel(viewerEl, { deltaY: 100, ctrlKey: true });
+  await waitFor(() => assert.equal(level(), '100%'));
+});
+
 // 5.2/Risk R2: a controllable stand-in for the real IntersectionObserver
 // (jsdom has no layout, so it can't compute real intersections) — lets a test
 // simulate "this page just scrolled into the buffered viewport" by calling
@@ -165,7 +192,8 @@ test('5.2: only the target page renders eagerly; the rest render lazily as they 
     );
 
     await waitFor(() => {
-      assert.equal(screen.queryByTestId(TEST_IDS.LOADING_INDICATOR), null, 'still loading');
+      // Boolean, not assert.equal(element, null): a failed poll would make Node diff the whole jsdom node, which takes minutes.
+      assert.ok(screen.queryByTestId(TEST_IDS.LOADING_INDICATOR) === null, 'still loading');
     });
 
     assert.deepEqual(renderedPages, [1], 'only page 1 (the initial target) should render up front');

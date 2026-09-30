@@ -28,9 +28,9 @@ toward adding features for their own sake.
 |---|---|---|
 | PDF rendering (client) | `pdf.js` (`pdfjs-dist`) | Free/open-source; canvas-based paginated rendering, zoom/pan, thumbnails. |
 | Annotation overlay (client) | `fabric` (Fabric.js) | Free canvas toolkit for draw/select/move/resize; keeps its own coordinate system normalized to PDF point space so annotations survive zoom/scroll without drift. Chosen over Konva.js: Fabric's built-in object model (rect/ellipse/polygon/path/IText/group, each with selection/resize handles and a freehand `PencilBrush`) covers A1–A8's tool set with less custom code than Konva's lower-level scene graph would need. |
-| Burn-in (server) | `pdf-lib` *(not yet installed)* | Writes the overlay's vector content into a **new** PDF, server-side — the persisted file must not be solely a product of client-side code the user can alter. |
-| Auth / DB / Storage | Supabase (Postgres + Storage) | `attachments` + `shares` tables (see `supabase/migrations/`); signed, time-bounded URLs for file access. |
-| Backend | Node + Express | Four-verb endpoints (fetch/create/change/remove) against attachments and shares. |
+| Burn-in (server) | `pdf-lib` | Writes the overlay's vector content into a **new** PDF, server-side — the persisted file must not be solely a product of client-side code the user can alter. |
+| Auth / DB / Storage | Supabase (Postgres + Storage) | `attachments`, `attachment_drafts`, `workspaces` and `folders` tables (see `supabase/migrations/`; the old `shares` table was dropped, §4); signed, time-bounded URLs for file access. |
+| Backend | Node + Express | Four-verb endpoints (fetch/create/change/remove) against attachments (plus draft and page-edit endpoints), workspace, folders, account and burn-in. |
 
 Non-negotiable boundary: **annotations burn in server-side, into a new attachment.** The client never
 overwrites the original file, and no authorization decision or burn-in logic that must be correct lives
@@ -49,6 +49,14 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   scroll/wheel is enough (V6); "Fit width" computes scale from the first page's native width
   vs. the viewer's current clientWidth and goes through the same zoom pipeline (clamped to
   50%–300%, same scroll-restore behavior) rather than being a separate layout mode (V7).
+- **Wheel / pinch zoom (implemented):** in the viewer, `Ctrl`/`Cmd` +
+  mouse wheel and a trackpad pinch (browsers report pinch as a wheel event with `ctrlKey` set) zoom the
+  document through the same `zoomIn`/`zoomOut` pipeline as the buttons — same 25% steps, same 50%–300%
+  clamp. `PDFViewer.tsx` attaches a native, non-passive `wheel` listener to the scroll container (React's
+  `onWheel` is passive and can't `preventDefault` the browser's own page zoom). Deltas are accumulated and
+  one step fires per 40px (`WHEEL_ZOOM_THRESHOLD`), so a pinch's stream of tiny deltas doesn't trigger a
+  full re-render each; events arriving mid-render are swallowed (still `preventDefault`'d). A plain wheel
+  or two-finger scroll without `Ctrl`/`Cmd` scrolls normally. Zoom is not anchored to the cursor.
 - **Viewer layout (implemented):** the zoom control (Fit width, −, level, +) is a small, muted bar in its
   own row *above* the document, right-aligned (`PDFViewer.tsx`'s `.pdf-viewer-column` wraps the zoom bar
   and the scrolling `.pdf-viewer`), not an overlay inside the scroll area — previously it scrolled with
@@ -58,9 +66,9 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   via `canvas.style.width/height`, so they stay sharp on Retina screens. `AnnotationCanvas.jsx` therefore
   sizes its Fabric canvas from the PDF canvas's CSS size (`style.width/height`), not its bitmap
   `width/height`, so annotations still line up with the page.
-- **Read-only preview (`/view/:id`):** PDF, thumbnails and page navigation only, with a "← Workspace"
-  link and the file name. The preview's "Edit" link was removed; the workspace's Recent list now links
-  straight to the editor (`/edit/:id`, `RecentSection.tsx`).
+- **Opening a file (implemented):** clicking a file name in the workspace list, or a thumbnail in Recent,
+  opens the annotation viewer (`/edit/:id`). There is no separate read-only preview route or per-row Edit
+  button — `/view/:id`, `ViewerPage`'s `readOnly` mode and the `file-actions-open` control were removed.
 - No print, search, or any pdf.js default control beyond V1–V7 (V8). Confirmed structurally, not by
   hiding/disabling anything after the fact: the viewer only imports pdf.js's core rendering API
   (`getDocument`, `page.render` onto a raw `<canvas>`) — it never imports `pdfjs-dist/web/pdf_viewer`
@@ -80,32 +88,32 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   (serialize via `toJSON`/`dispose` before teardown, `loadFromJSON` after reattaching) so annotations
   survive PDFViewer's destructive re-render on every zoom/pan/fit-width/document change.
 - Toolbar, fixed left-to-right order: Hand → Pen (default) / Freeform highlighter → Text → Ellipse (default) / Rectangle / Line / Arrow (one-sided) → Cloud → Signature
-  (upload image) (A1). All 10 are individually visible buttons, not collapsed into group dropdowns —
+  (upload image) (A1), then the **Document editor** button (§3.2, below). Every annotation tool is an individually visible button, not collapsed into group dropdowns —
   "(default)" only marks which tool is initially active (Pen, on mount) and which shape tool is
   active if the user hasn't picked a different one; each tool still gets its own always-visible icon
   button (`Toolbar.jsx` + `toolbarIcons.tsx`, inline SVG, no icon-library dependency). **Hand (implemented)**
-  is a 12th button at the far left (`tool-hand`): it draws nothing and only lets the user select, move
+  is the button at the far left (`tool-hand`): it draws nothing and only lets the user select, move
   and resize existing annotations (the overlay takes pointer input only when the press lands on an
   annotation, so dragging empty page area still pans the viewer). It has no style popover. Pen is still
   the tool active on mount.
 - **Toolbar header (implemented):** a larger bar (more padding, 2.75rem tool buttons) with the file
   *name* only on the left (no id, no "Attachment:" prefix; truncated with an ellipsis and full name on
-  hover, so every tool stays visible without scrolling), then the tools, Download and Save, and a round
-  "×" **Back** button (`back-button`) at the far right. Back always opens a confirmation modal (card
-  variant, title "Go back?", body "Are you sure you want to go back? All unsaved changes will be lost.",
-  confirm "Go back") and confirming navigates to `/workspace`; there is no dirty-state tracking, so it
-  prompts even with no edits, and closing the tab or the browser's Back bypasses it.
+  hover, so every tool stays visible without scrolling), then the tools, the Document-editor button, the draft-status text (see Draft autosave below), Download and
+  Save, and a round "×" **Back** button (`back-button`) at the far right. Back flushes the autosaved draft
+  and navigates to `/workspace`; only if that flush fails does it open the "Go back?" confirmation (card
+  variant, body "Are you sure you want to go back? All unsaved changes will be lost.", confirm "Go back").
+  Tool buttons (and the Document-editor button) show a hover/focus tooltip with the tool's name
+  (`.file-button-tooltip`).
 - **After drawing, the toolbar returns to Hand (implemented):** finishing a creation gesture selects the
   new annotation and calls `onObjectCreated`, which `ViewerPage.jsx` wires to `setActiveTool('hand')`, so
   the next drag moves/resizes it instead of starting another shape.
 - All line-based marks render solid only (A2); opacity fixed at 100%, not configurable (A3).
 - **Per-tool style (A4, revised, implemented)** — each annotation tool has its own color (default red
-  `#dc2626`) and stroke width (default 4pt); there is **no fill option** (closed shapes are always
-  outline-only). `ViewerPage.jsx` keeps a map (`stylesByTool`) and passes the active tool's style (falling
+  `#dc2626`) and stroke width (default 4pt); the **Text** tool instead has color, **font family** (Helvetica / Times New Roman / Courier New) and **font size** (default 16pt, `StyleControls`' `showFont`; burn-in maps the family to the matching PDF standard font); closed shapes (Rectangle, Ellipse, Cloud) additionally have an optional **fill** (a checkbox plus its own color picker, `style.fill`; unchecked/`null` = outline only, the default). `ViewerPage.jsx` keeps a map (`stylesByTool`) and passes the active tool's style (falling
   back to `DEFAULT_ANNOTATION_STYLE`) to `Toolbar.jsx` and `AnnotationCanvas.jsx`, so switching tools
   never overrides another tool's configuration. The controls (`StyleControls.tsx`) render in a
   tooltip-style **popover under the selected tool's button** (`.toolbar-style-popover`), which stays open
-  until another tool is chosen (none for Hand). Text shows color only (no stroke).
+  until another tool is chosen (none for Hand). Text shows color, font and size (no stroke).
   The color control is a custom `ColorPicker.tsx` (rounded swatch; panel with a saturation/brightness
   area, hue slider, and small, rounded Hex / R,G,B / H,S,L fields; closes on outside click or Escape)
   instead of `<input type="color">`, whose native popup can't be styled; it still emits `#rrggbb`. Every
@@ -122,7 +130,7 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   Every created object is tagged with which tool made it (`object.set('annotationTool', toolId)`, via a
   `tag()` helper called at the end of every creation path) — this is what lets the "unless re-selected"
   behavior interpret `style` correctly for an arbitrary already-placed object (e.g. text's color lives in
-  `fill`, a line's in `stroke`, closed shapes always keep `fill: null`) without re-deriving
+  `fill`, a line's in `stroke`, closed shapes take `style.fill`) without re-deriving
   the object's type from its current paint. The tag is included in `canvas.toJSON()`'s
   `propertiesToInclude` (`['annotationTool']`) in both `handlePagesReset` and `handlePageRendered`'s
   existing-canvas branch, so it survives `PDFViewer.tsx`'s serialize/dispose/reload cycle on every
@@ -192,6 +200,28 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   `savedStateRef` and `loadFromJSON`'d back permanently on the very next zoom-triggered rebuild, with no
   way to remove it until 2.14's delete tooling exists) and on every tool-switch (otherwise a stray
   editing cursor stays live until the next canvas click).
+  **Bold / italic / underline (implemented):** while a Textbox is being edited, `Ctrl`/`Cmd`+`B` / `I` /
+  `U` toggle `fontWeight` (`bold`/`normal`), `fontStyle` (`italic`/`normal`) and `underline` on the
+  *whole* textbox (object-level, not per-selected-character — so burn-in needs no per-character style
+  handling). `AnnotationCanvas.jsx`'s document-level `keydown` handler (`toggleTextFormat`) handles them
+  only when the active object is a Textbox with `isEditing`, and `preventDefault`s them so the browser's
+  own shortcut (e.g. Firefox's bookmarks sidebar on `Ctrl+B`) doesn't fire. Burn-in honours all three (see
+  §3.4 burn-in notes).
+- **Text selection markup (implemented, editor only):** `PDFViewer`'s `textLayer` prop (passed by the
+  editor, not the read-only preview — V8 still holds there) builds a pdf.js `TextLayer`
+  (`.pdf-text-layer`, transparent selectable spans, `cursor: text`) over each rendered page, *under*
+  Fabric's overlay. With the **Hand** tool, the overlay's upper canvas takes pointer events only while
+  the cursor is over an annotation and steps aside (`pointer-events: none`) over bare text, so hovering
+  text shows an I-beam and dragging selects it natively; a press on bare page area deselects any selected
+  annotation, and dragging across text selects instead of panning. Once a selection settles,
+  `TextMarkupToolbar.tsx` shows a floating **Strikethrough / Highlight / Underline** picker above it;
+  choosing one calls `AnnotationCanvas`'s `addTextMarkup(kind, clientRects)`, which merges the selection's
+  rects into one box per line (`textMarkup.ts`) and adds real annotation objects in PDF-point space —
+  Highlight = translucent yellow `Rect`, Underline/Strikethrough = red `Line` (tagged `text-highlight` /
+  `text-underline` / `text-strikethrough`) — then clears the selection. They burn in through the existing
+  Rect/Line paths. Known limits: a multi-line selection creates one object per line (each deleted
+  separately); colors are fixed (not the style popover's); selection needs the Hand tool (the editor's
+  default is Pen); the underline/strike positions are proportions of the line box, not font metrics.
 - **Rectangle, Ellipse, Cloud (A1/A2/A4/A7, implemented)**: all three drag out a
   bounding box rather than clicking or freehand-drawing. `AnnotationCanvas.jsx`'s `BOUNDS_SHAPE_TOOLS`
   config map (one entry per tool: how to create the shape at zero size, how to resize it to a given box)
@@ -211,7 +241,7 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   `opacity: HIGHLIGHTER_OPACITY` property (not baked into the fill color, so it stays a real property in
   the serialized state for burn-in later) — sharing the same opacity constant Freeform Highlighter uses
   (extracted so the two tools' visual treatment can't drift apart by accident). Rectangle, Ellipse, and
-  Cloud are always `fill: null` (outline only, letting the page show through; there is no fill option)
+  Cloud default to `fill: style.fill ?? null` (outline only unless the user ticks the fill option)
   with `stroke: style.color`/`strokeWidth: style.strokeWidth`, no dash array
   (A2: outlines render solid). Rectangle and Ellipse are created with `originX/originY: 'left'/'top'`
   (Fabric 7 defaults to a center origin) so the press point stays one corner of the box, and their
@@ -309,6 +339,53 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
 - No annotation capability beyond A1–A8 for edit users — no notes tool, no cover pages, nothing
   unlisted (A9; see §6 Out of Scope).
 
+- **Draft autosave (implemented; migration `20260930130000_attachment_drafts.sql` applied):** annotations
+  are no longer lost on leaving the editor. `AnnotationCanvas` reports every add/modify/remove/typing
+  change (`onChange`; suppressed while restoring/disposing); `useAnnotationDraft` debounces them
+  (2s) into `PUT /api/attachments/:id/draft` (`{ pages }`, same per-page Fabric JSON as burn-in, stored
+  in the new `attachment_drafts` table — one row per attachment, `on delete cascade`, service-role only,
+  owner-only via `requirePermission(canRead/canWrite)`; 400 on a malformed/over-8 MB draft, last write
+  wins). It's a separate table, not `attachments.annotations`, because `attachments` has an `updated_at`
+  trigger and autosave would bump the file's "Last modified". On open, `GET …/draft` is restored into the
+  canvases (`restoreDraft`; refuses to overwrite annotations already started). A `localStorage` copy
+  (`inkspace:draft:<id>`) bridges the gap before a save lands (tab closed, offline): it holds only
+  *unsynced* work, is removed once the server accepts a save, and on open the newer of (local, server)
+  wins — so a stale local copy can't shadow edits made on another computer. Failed saves retry every
+  15s and on `online`; the toolbar shows "Saving draft… / Draft saved / Couldn't save draft — retrying".
+  Autosave snapshots never cancel text editing and skip still-empty text boxes (`getDraftPages`). **Back**
+  flushes the draft and leaves directly; only if that save fails does it warn ("Go back?"). Save/Download
+  are unchanged (still burn in to a new file/download); the draft is kept afterwards. **Recent grid:** `GET /api/attachments` also returns `draftUpdatedAt` (from `attachment_drafts`,
+  time only, null when the draft is missing or emptied), and `RecentSection` ranks files by the later of
+  `updatedAt` and `draftUpdatedAt` (`lastActivityTime`) and tags those with a draft "Draft" — so a file
+  annotated a moment ago appears there even though its own `updatedAt` never moved. The file list's
+  "Last modified" column is unchanged. Known limits: no UI
+  to discard a draft yet; no cross-device conflict warning (last write wins); a draft is never applied to
+  a PDF until the user saves/downloads.
+
+- **Document editor (implemented):** the toolbar's Document-editor button opens `DocumentEditorModal.tsx`
+  with a thumbnail of every page, the page the annotation view is on focused by default (same highlighted
+  border as the viewer's thumbnails; click a page to focus it). Tools act on the focused page:
+  **Upload PDF** (PDF only — type, `%PDF-` header and a pdf.js parse are all checked; encrypted/damaged files
+  are refused with a per-file message; uploads total ≤ `MAX_UPLOAD_BYTES`) inserts the uploaded pages right
+  *after* the focused page and focuses the first of them; **Rotate left/right** (90° steps, there is no mirror
+  flip); **Delete page** asks "Delete page?" first (the last page can't be deleted). Pages are
+  **drag-and-dropped** one at a time (native HTML5 drag; dropping on a page puts the dragged page at that
+  position). The footer has **Cancel** then **Save**, right-aligned; Cancel (and Esc) closes at once —
+  no confirmation even with unsaved changes; Save is enabled only when something changed. The edit is a
+  list of pages `{ source, pageIndex, rotate }` (`documentEditModel.ts`); on Save the client calls
+  `POST /api/attachments/:id/pages` (owner-only, `{ uploads: base64[], pages }`), which rebuilds the PDF
+  with pdf-lib (`documentEdit.ts`), writes it to a **new** Storage object, repoints
+  `attachments.storage_path`/`page_count`/`byte_size` (so "Last modified" moves) and removes the old object
+  — **unlike burn-in, this replaces the file itself** (the original pages are not kept). Then
+  `AnnotationCanvas.applyDocumentEdit` moves every page's annotations to where the page went (a deleted
+  page's are dropped, a rotated page's turn with it — `pageRotation.ts`, verified against Fabric's own
+  corner coordinates), the remapped draft is flushed to the server, and `usePdfDocument().reload()` swaps the
+  new document in (the viewer comes back at page 1, 100%). To make rotated pages/annotations burn in
+  correctly, burn-in now honours a page's `/Rotate` (objects are drawn inside a display→user `cm` matrix,
+  cross-checked against pdf.js) and Fabric's per-object `angle` (drawn inside a rotation about the object's
+  origin point) — closing the old "rotation isn't reproduced" gap. Known limits: keyboard-only page
+  reordering isn't offered; the editor doesn't warn about two tabs editing the same file.
+
 ### 3.3 Download (D1–D3, implemented)
 - "Download" available from the viewer toolbar (`Toolbar.jsx`'s `.toolbar-actions`, `TEST_IDS.DOWNLOAD_BUTTON`)
   (D1); calls the burn-in endpoint with the current annotation state and decodes the result straight to a
@@ -336,8 +413,8 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   not the original attachment's name — if a user changes the filename field, submits, and it fails, the
   toast names what they actually tried to save as. Either way, **the modal stays open** — `SaveModal.tsx`
   has no code path that calls `onClose` after a save settles, success or failure (S8).
-- New attachments are always owned by whoever saves them (`req.headers['x-user-id']` at request time),
-  not the original attachment's owner — someone with only `edit` share access can save a copy they now own.
+- New attachments are always owned by whoever saves them (`req.userId` from `requireAuth`), which under
+  the single-owner model (§4) is always the original's owner too.
 
 **Filename rules (implemented in `src/utils/filenameUtils.ts`, shared by the client and
 `server/routes/attachments.js` so client and server can't drift):**
@@ -359,6 +436,18 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
     `"Invalid characters"` (F6)
 
 **Burn-in (`server/services/burn-in.ts`, via `pdf-lib`):**
+- **Object `type` is matched case-insensitively.** Fabric 7 serializes `type` as the class name (`Rect`,
+  `Ellipse`, `Path`, `Textbox`, …), not lowercase. `drawAnnotationObject` lowercases it before its
+  `switch`; before that fix every object fell into the skip-unknown `default` branch, so Save/Download
+  produced an un-annotated copy of the PDF. Regression-tested in `tests/burn-in.test.ts` against real
+  Fabric `toObject()` output. The PDF work lives in the storage-free, exported `burnInPdfBytes(bytes, pages)`
+  (`applyBurnIn` = download bytes from Storage → `burnInPdfBytes` → base64); `storage.js` is imported lazily
+  inside `applyBurnIn` so the core is testable without Supabase env vars.
+- **Text styling:** the Text tool's font family (`Helvetica` / `Times New Roman` / `Courier New`) maps to
+  the matching PDF standard font, with `fontWeight: bold` and `fontStyle: italic` selecting its Bold /
+  Oblique / Bold-Oblique variant; `underline: true` draws a line under each wrapped line of text
+  (thickness ≈ fontSize/15, just below the baseline). Its position hasn't been compared pixel-for-pixel
+  against Fabric's own underline rendering.
 - Takes the Fabric.js annotation JSON `AnnotationCanvas.jsx`'s `getAnnotationsForBurnIn()` produces (one
   entry per page that has at least one object, in that page's own PDF-point space — no client-side
   coordinate conversion, matching every other Risk R1 guarantee in this feature) and draws each object onto
@@ -384,12 +473,11 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   both directions (burn-in's response, save's request) — task 5.3 still owns the *authoritative,
   user-facing* PDF size limit (`MAX_UPLOAD_BYTES`); this is only the outer body-parser ceiling so a
   legitimate file up to that limit doesn't get a raw, unhelpful 413 first.
-- **Known gaps, tracked, not fixed here:** rotation (Fabric's `angle`, reachable via its default rotate
-  handle once an object is selected) is not reproduced in the burned PDF — every shape burns in at
-  `angle: 0`'s position/size math regardless of any rotation applied on screen. Burned text always uses
-  Helvetica (`StandardFonts.Helvetica`) regardless of what Fabric's Textbox default font would render on
-  screen — text styling/font family was never a configurable requirement (A3/A4), so this is a visual
-  approximation, not a missing feature. `drawTextbox`'s per-line baseline (`box.y + fontSize + index *
+- **Known gaps, tracked, not fixed here:** (rotation is no longer one: Fabric's `angle` and a page's
+  `/Rotate` are now burned in — see the Document-editor note in §3.2.) Burned text uses PDF
+  *standard* fonts (Helvetica/Times/Courier, see the text-styling note above), not the browser's actual
+  font files, so glyph shapes approximate what Fabric renders on screen; only whole-textbox
+  bold/italic/underline is supported (no per-character styles). `drawTextbox`'s per-line baseline (`box.y + fontSize + index *
   lineHeight`) is likewise an approximation, not a font-metrics-exact ascent — close enough for the
   fidelity bar this feature targets, not pixel-exact against Fabric's own text rendering. Curved paths'
   (Cloud's arcs, which Fabric normalizes to Bezier curves at parse time) raw bounding box is approximated
@@ -489,7 +577,13 @@ beyond the original LG1/SU1 wording:
 Test coverage: `tests/LoginPage.test.tsx`, `tests/SignupPage.test.tsx`, `tests/ForgotPasswordPage.test.tsx`,
 `tests/passwordPolicy.test.ts`, `tests/fieldValidation.test.ts` (component level, mocked Supabase client).
 
-**Workspace file view:** the workspace shows files only as the sortable list (`FileList.tsx`); the grid view, `FileGrid.tsx`, and the Grid/List toggle (WF8) were removed.
+**Workspace file view:** the workspace shows files only as the sortable list (`FileList.tsx`); the grid view, `FileGrid.tsx`, and the Grid/List toggle (WF8) were removed. Current behavior of the list and page:
+- **Loading:** until the first `GET /api/attachments` settles, the page shows a five-dot loader (`workspace-loading`) instead of the empty state; the "Recent" heading appears in the toolbar row (next to Upload and search) only once files exist.
+- **Upload:** the picker accepts multiple PDFs and keeps the first 5 (`MAX_FILES_PER_UPLOAD`). Each file is validated (filename rules, `MAX_UPLOAD_BYTES`) and uploaded independently; failures are listed one per line (`<name>: <reason>`) while the files that did upload still appear.
+- **List:** sorted by Name or Date; clicking the active column header toggles ascending/descending (arrow indicator). Paginated client-side, 5 rows per page (`PAGE_SIZE`), with a footer showing "N files total" and Previous/Next with "Page X of Y" (the page is clamped after a delete or search narrows the list). Files with an autosaved draft carry a "Draft" tag.
+- **Recent:** the 5 most recently active files (`RECENT_LIMIT`, `lastActivityTime` = later of `updatedAt` / `draftUpdatedAt`).
+- **Per-file actions:** Download and Delete only; there is no Annotate/Edit button (the file name opens `/edit/:id`).
+- **Settings:** the Account menu's Settings item opens `SettingsModal` over the workspace (no `/settings` route).
 
 **Workspace folders removed from the UI:** the workspace has no folder sidebar, breadcrumbs, or folder
 navigation (WF1–WF4, WF10 are withdrawn). `WorkspacePage.tsx` fetches every attachment with one
@@ -533,9 +627,16 @@ guarantee once that call succeeds, not something this component implements. `Ver
 signup-confirmation link: no error params means verification already succeeded (shows "Email verified" +
 a link to `/workspace`); error params show a "Verification link expired" state with a resend form that
 calls `supabase.auth.resend({ type: 'signup', email })`. None of these three pages sit behind
-`RequireSession` in `App.jsx` — reaching them is exactly the unauthenticated case they exist for. Task 3.3
-(email change) will trigger the same underlying `resend`/`updateUser` calls directly from
-`SettingsPage.tsx`, not by reusing `VerifyEmailPage.tsx` as a component. **Found in code review:** the
+`RequireSession` in `App.jsx` — reaching them is exactly the unauthenticated case they exist for. **Settings
+(revised):** Settings is no longer a routed page (`/settings` and `SettingsPage.tsx` are gone) — it is
+`src/modals/SettingsModal.tsx`, opened from the workspace's Account menu over the workspace. Sections,
+separated by dividers: **Email** (the session's email in a *disabled, read-only* field — changing email
+is no longer supported, so there is no email-change/re-verification flow from Settings), **Password**
+(titled "Change password"; `updateUser({ password })`, same policy as reset; the fields are the signup form's `PasswordField` — floating placeholder, in-field eye show/hide toggle, and `FieldTooltip` errors on the offending field: the requirements list on *New password*, "Passwords do not match" on *Confirm*, a server error above the submit button), and **Danger zone**
+(delete account, via the card-style confirmation). A successful password change shows a transient success toast (`Toast.tsx`, "Password updated successfully", `settings-password-success`; auto-dismisses after 4s or on click) rather than inline text. The profile display-name field and its
+`user_metadata.display_name` storage were removed; migration
+`20260930120000_drop_profile_display_name.sql` clears the key from existing users' auth metadata
+(it leaves `public.workspaces.display_name`, the workspace's own name, alone). **Found in code review:** the
 link-error-parsing logic was originally duplicated verbatim across both pages; extracted to
 `src/lib/authLinkError.ts` in the same change, which also dropped a redundant `.replace(/\+/g, ' ')`
 (`URLSearchParams` already decodes `+` to a space) and a dead hash-without-`#` ternary branch that can't
@@ -567,7 +668,7 @@ cover the component-level behavior instead.
 - **Coordinate drift** — the annotation overlay must be normalized to PDF point space, not screen
   pixels, so burned-in position/size matches the on-screen canvas at fit-width, 100%, and 200% zoom
   (Risk R1).
-- **View-only user calls the API directly** (bypassing the UI) to burn-in or save — must get 403, not
+- **A non-owner calls the API directly** (bypassing the UI) to burn-in, save, read or edit the draft, or edit pages — must get 403, not
   200 (Risk R4).
 - **Dead link / no permission / deleted attachment** — empty state (P5), not a blank screen, a raw 404,
   or a generic error.
@@ -587,7 +688,7 @@ per-annotation individual styling · a notes/comment tool of any kind (the PDF e
 view-only role it existed for — see §4) · cover pages, stamps, callouts, redaction, or any annotation
 type not in A1–A8 · direct editing of underlying PDF content (text/images) · OCR, form-filling, or
 legally-binding e-signature · real-time multi-user co-editing · cross-session undo/version history ·
-page import/blank-page/reorder/rotate (stretch, ST2) · locally persisted style preferences (stretch,
+blank-page insertion and keyboard-only page reordering (page upload/insert, reorder, rotate and delete *are* shipped, via the Document editor, §3.2) · locally persisted style preferences (stretch,
 ST1) · cross-account sharing of any kind (cut entirely per §4).
 
 ## 7. Acceptance Criteria (Definition of Done)
@@ -627,10 +728,11 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 | Phase | Status |
 |---|---|
 | 1 — Viewer (V1–V8) | Done (1.1–1.10): render/scroll/loading/thumbnails, page navigator, zoom in/out, pan, fit-width, confirmed absence of default pdf.js print/search UI, and component tests for `PDFViewer`/`PageNavigator`. |
-| 2 — Annotation tools (A1–A9) | Done (2.1–2.14; 2.15's tests land alongside): Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). Pen/Freeform Highlighter (2.4/2.6), Text (2.5), Text Highlighter (2.7), Rectangle/Ellipse (2.8), Line/Arrow (2.8), Cloud (2.9), the per-tool style popover (`StyleControls.tsx` + `ColorPicker.tsx`, 2.10; revised: per-tool color/width, no fill), Polygon (2.11), Signature (2.12), select/move/resize (2.13, A5), and the delete-confirmation modal (2.14, A6) are implemented. Signature (`SignatureUploader.tsx`): validates type/size client-side, re-encodes the upload through an offscreen `<canvas>` before placing it (A8/R8's client-side half — the *authoritative* server-side re-check/re-encode is task 5.3/5.6, done: see §10), and places it via `AnnotationCanvas.jsx`'s `addSignatureImage` at a default width (clamped to the page's own width) on whichever page is currently on screen. Select/move/resize (2.13): see §3.2's A5 note for the Pen/Freeform Highlighter fix this required. Delete (2.14): see §3.2's A6 note. |
-| 3 — Download & Save (D1–D3, S1–S8, F1–F6) | Implemented (3.1–3.11): burn-in (`server/services/burn-in.ts` + `annotationGeometry.ts`), save-as-new-attachment (`server/services/storage.ts`'s `saveAttachment`/`downloadAttachmentBytes`), `src/utils/filenameUtils.ts` (F1–F6, shared client/server), `SaveModal.tsx`, and the Download/Save toolbar wiring in `ViewerPage.jsx`/`Toolbar.jsx`. **Blocked on dependency install:** `pdf-lib` could not actually be installed in the session that wrote this — the sandboxed environment's network access to `registry.npmjs.org` timed out, and redirecting to the Autodesk Artifactory mirror was itself blocked by the harness's own policy. `server/services/burn-in.ts` and `storage.ts` are written against `pdf-lib`'s documented API but have never actually been run — `npm run typecheck` currently fails on exactly those two files' `pdf-lib` import (nothing else). **Action needed:** run `npm install pdf-lib` in an environment with real registry access, then re-run `npm run typecheck` and `npm test` (particularly exercise a real Download/Save against a real attachment) before treating burn-in as verified rather than reviewed-but-unrun. The coordinate math those two files depend on (`annotationGeometry.ts`) has no such dependency and *is* unit-tested (`tests/annotationGeometry.test.ts`). |
-| 4 — Permissions (single-owner) | **Superseded, see §4.** The original email-based sharing implementation (P1–P5, `shares` table, `ShareModal.tsx`, edit/view roles) was fully built and tested in an earlier session, then cut entirely in `tasks/tasks-accounts-workspace.md` task 7.0 per that PRD's §3.4/WF5 revision. Current state: `server/middleware/permissions.ts`'s `canRead`/`canWrite`/`canBurnIn`/`isOwner` are all owner-only; every attachment/burn-in route is gated by `requirePermission` against real `requireAuth` identity (`req.userId`, a verified Supabase JWT — not the old `x-user-id` stub); `NoAccessState.tsx` still covers the no-permission/dead-link empty state via `usePdfDocument.ts`'s `accessDenied`. `supabase/migrations/20260929150000_drop_shares.sql` dropped the `shares` table and `share_role` enum (`npm run supabase:migrate` succeeded: `"message":"Finished supabase db push."`); `src/lib/database.types.ts` was regenerated and no longer mentions either. `tests/permissions.test.ts`/`tests/permissions.api.test.ts` keep owner-vs-stranger real-HTTP/unit coverage; the attachments/burn-in half of `permissions.api.test.ts` still self-skips pending the `pdf-lib` install (see Phase 3's row and §9) — unrelated to the sharing cut. |
-| 5 — Hardening | Done (5.1–5.7, see §10). All items closed except the pre-existing `pdf-lib`-install blocker (§9), which is outside this task's scope to fix. |
+| 2 — Annotation tools (A1–A9) | Done (2.1–2.14; 2.15's tests land alongside): (Polygon, 2.11, was later removed — §3.2.) Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). Pen/Freeform Highlighter (2.4/2.6), Text (2.5), Text Highlighter (2.7), Rectangle/Ellipse (2.8), Line/Arrow (2.8), Cloud (2.9), the per-tool style popover (`StyleControls.tsx` + `ColorPicker.tsx`, 2.10; revised: per-tool color/width, optional fill on closed shapes), Signature (2.12), select/move/resize (2.13, A5), and the delete-confirmation modal (2.14, A6) are implemented. Signature (`SignatureUploader.tsx`): validates type/size client-side, re-encodes the upload through an offscreen `<canvas>` before placing it (A8/R8's client-side half — the *authoritative* server-side re-check/re-encode is task 5.3/5.6, done: see §10), and places it via `AnnotationCanvas.jsx`'s `addSignatureImage` at a default width (clamped to the page's own width) on whichever page is currently on screen. Select/move/resize (2.13): see §3.2's A5 note for the Pen/Freeform Highlighter fix this required. Delete (2.14): see §3.2's A6 note. |
+| 3 — Download & Save (D1–D3, S1–S8, F1–F6) | Implemented (3.1–3.11): burn-in (`server/services/burn-in.ts` + `annotationGeometry.ts`), save-as-new-attachment (`server/services/storage.ts`'s `saveAttachment`/`downloadAttachmentBytes`), `src/utils/filenameUtils.ts` (F1–F6, shared client/server), `SaveModal.tsx`, and the Download/Save toolbar wiring in `ViewerPage.jsx`/`Toolbar.jsx`. **`pdf-lib` is installed** (`package.json` `^1.17.1`) and burn-in is exercised by `tests/burn-in.test.ts` (real Fabric-serialized objects → real PDF bytes, including bold/italic/underline text). `npm run typecheck` is clean. A real Download/Save against a real attachment in a browser has not been re-verified here. The coordinate math those two files depend on (`annotationGeometry.ts`) has no such dependency and *is* unit-tested (`tests/annotationGeometry.test.ts`). |
+| 4 — Permissions (single-owner) | **Superseded, see §4.** The original email-based sharing implementation (P1–P5, `shares` table, `ShareModal.tsx`, edit/view roles) was fully built and tested in an earlier session, then cut entirely in `tasks/tasks-accounts-workspace.md` task 7.0 per that PRD's §3.4/WF5 revision. Current state: `server/middleware/permissions.ts`'s `canRead`/`canWrite`/`canBurnIn`/`isOwner` are all owner-only; every attachment/burn-in route is gated by `requirePermission` against real `requireAuth` identity (`req.userId`, a verified Supabase JWT — not the old `x-user-id` stub); `NoAccessState.tsx` still covers the no-permission/dead-link empty state via `usePdfDocument.ts`'s `accessDenied`. `supabase/migrations/20260929150000_drop_shares.sql` dropped the `shares` table and `share_role` enum (`npm run supabase:migrate` succeeded: `"message":"Finished supabase db push."`); `src/lib/database.types.ts` was regenerated and no longer mentions either. `tests/permissions.test.ts`/`tests/permissions.api.test.ts` keep owner-vs-stranger real-HTTP/unit coverage; the attachments/burn-in half of `permissions.api.test.ts` self-skips without the Supabase credentials it needs (`HAS_CREDS`) — unrelated to the sharing cut. |
+| Post-plan additions | Shipped outside `tasks/tasks-pdf-editor.md`, all documented in §3.2/§4: editor wheel/pinch zoom, text-selection markup (Strikethrough/Highlight/Underline), Text bold/italic/underline + font/size, draft autosave (`attachment_drafts`, migration `20260930130000`), Document editor (page upload/rotate/delete/reorder, `POST /api/attachments/:id/pages`), burn-in of page `/Rotate` and object `angle`, workspace redesign (Settings modal, multi-upload, pagination, Recent/Draft tags, toasts), removal of `/view/:id` and the profile display name (migration `20260930120000`). |
+| 5 — Hardening | Done (5.1–5.7, see §10). All items closed. (The `pdf-lib`-install blocker this row once carried is resolved — see §9.) |
 
 ## 9. Known Gaps to Track Until Closed
 
@@ -678,36 +780,20 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   `tests/ForgotPasswordPage.test.tsx` / `tests/ResetPasswordPage.test.tsx` / `tests/VerifyEmailPage.test.tsx`
   cover PR1–PR3/EV1/EV3 at the component level instead. Same for task 3.7's planned
   `tests/integration/settings/account-settings.spec.ts` (US1–US5) — not created for the identical
-  `@playwright/test` install blocker; `tests/SettingsPage.test.tsx` covers US1–US5 at the component
+  `@playwright/test` install blocker; `tests/SettingsModal.test.tsx` covers the settings modal at the component
   level, and `tests/account.test.ts`/`tests/account.api.test.ts` cover the cascade and the
   own-account-only route boundary at the HTTP/service level instead.
-- **The P4 notes control is session-only, not persisted** — see §4's `NotesPanel.tsx` note. Revisit if
-  a future PRD update wants notes to survive a reload.
-- **`npm run supabase:migrate` (task 4.2) wasn't run this session** — blocked by this environment's
-  auto-mode classifier as a production-deploy action. The schema it targets was already live (this
-  session's tests read/write it successfully), so this is a process gap, not a known schema drift;
-  someone with deploy authorization should still run it once to confirm.
-- **`pdf-lib` is not actually installed** — see §8's Phase 3 row. `burn-in.ts`/`storage.ts` are written
-  and reviewed but have never been run against a real PDF. Do not treat burn-in as verified until someone
-  with real registry access runs `npm install pdf-lib` and re-runs the full test suite plus a real
-  Download/Save against a real attachment. **Worse than previously scoped, found during accounts-workspace
-  task 5.11's screenshot check:** `server/index.js` statically imports `attachments.js` and `burn-in.js`,
-  both of which transitively import `pdf-lib` at module load time — so `npm run dev`'s server process
-  (and `npm start`) crash on startup with `ERR_MODULE_NOT_FOUND` in this environment, not just the
-  burn-in/attachments routes. This means **no route in this app is reachable via a real running server**
-  right now, including the brand-new, entirely-unrelated `/api/workspace`/`/api/folders`/`/api/account`
-  (tasks 3.0/4.0), until `pdf-lib` is installed somewhere with real registry access. `npm test`'s
-  real-HTTP tests (`tests/*.api.test.ts`) are unaffected — they build their own minimal Express app per
-  file and only import the specific router under test, so `workspace.ts`/`folders.ts`/`account.ts` (which
-  don't touch `pdf-lib` at all) import and run fine there; only the one test file that imports
-  `attachments.js` (`tests/workspaceFolders.api.test.ts`'s WF1 case) self-skips for this reason, same
-  precedent as `tests/permissions.api.test.ts`. Task 5.11's screenshot check against a live `npm run dev`
-  was substituted with `tests/WorkspacePage.test.tsx` and the individual `src/workspace/*.tsx` component
-  tests instead — not fixed here, since making `burn-in.ts` (pdf-editor, already-shipped code, pervasive
-  `pdf-lib` type usage) lazy-load its dependency is out of scope for the accounts-workspace task list and
-  risks destabilizing already-reviewed code for a verification nicety.
-- **No pagination on `GET /api/attachments`/`GET /api/folders` (task 4.0) or the workspace UI that lists
-  attachments (task 5.0)** — `listAttachments`/`listFolders` return every row in one query, and
+- **`npm run supabase:migrate` (task 4.2) wasn't run that session** — blocked by the environment's
+  auto-mode classifier as a production-deploy action; the schema was already live, so this was a process
+  gap, not drift. The later migrations (`20260930120000_drop_profile_display_name.sql`,
+  `20260930130000_attachment_drafts.sql`) must likewise be applied wherever the app is deployed — the draft
+  endpoints and `GET /api/attachments` (which reads `attachment_drafts`) fail without the latter.
+- **Resolved: `pdf-lib` is installed.** It was missing when burn-in/storage were first written (sandbox
+  registry access failed), which also made `server/index.js` crash on startup via its static imports of
+  `attachments.js`/`burn-in.js`. `pdf-lib` is now a dependency and burn-in runs under test
+  (`tests/burn-in.test.ts`). Still open: a real Download/Save against a real attachment at multiple zoom
+  levels (see the coordinate-drift item below). The `TS2379` typecheck errors in `burn-in.ts` are gone (`npm run typecheck` is clean).
+- **No server-side pagination on `GET /api/attachments`/`GET /api/folders` (task 4.0)** (the workspace list now paginates client-side, 5 rows per page — §4 — but still fetches every row in one query) — `listAttachments`/`listFolders` return every row in one query, and
   `WorkspacePage.tsx`/`SearchBar.tsx` filter that full list client-side (acceptable per code-review.md
   §3 Performance, which only flags client-side filtering as a problem when the underlying list is itself
   unbounded/unpaginated — which it is here). Flagged in task 4.9's review as something for task 5.0/6.0 to
@@ -737,9 +823,6 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   Not fixed here — a single rerun has always been green in practice. If it starts blocking CI reliably,
   revisit: retry-with-backoff around `tests/helpers/testAuthUser.ts`'s admin calls, or tune
   `--test-concurrency`.
-  and approximates curved paths' raw bounding box from listed path coordinates rather than true bezier
-  extents** — see §3.4's burn-in note. None of these are required by A1–A9; all are documented
-  approximations, not silent bugs.
 - **Coordinate-drift check (task 5.4, Risk R1): done at the coordinate-math level, not a real pdf-lib
   burn-in** — `tests/AnnotationCanvas.test.tsx`'s "a burned annotation's page-space position matches at
   fit-width, 100%, and 200% zoom" places one Rect, then re-attaches the same page's Fabric canvas at three
@@ -751,7 +834,7 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   `embedPng`/`drawSvgPath`/font-embedding calls, so it would not catch a bug specific to those. Re-verify
   end-to-end (a real Download against a real multi-annotation attachment at multiple zoom levels) once
   `pdf-lib` is installed, per the next Known Gap.
-- **Rectangle/Ellipse render offset from the dragged box** (found while implementing
+- **Resolved: Rectangle/Ellipse render offset from the dragged box** — both tools now set `originX/originY: 'left'/'top'` (§3.2), so the shape lands on the dragged box. Original finding, kept for history (found while implementing
   2.12, pre-existing since 2.7/2.8, not fixed here — out of scope for 2.12's diff): Fabric's object
   default is `originX`/`originY: 'center'` in the installed version (`fabric@7.4.0`), so `left`/`top`
   mean an object's *center*, not its top-left corner, unless overridden. `BOUNDS_SHAPE_TOOLS`'s
@@ -764,7 +847,7 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   rendered bounding box. Cloud/Line/Arrow/Polygon are unaffected (Path/Polygon shapes derive `left`/
   `top` from their own absolute point data, so nothing external imposes a mismatched interpretation).
   `addSignatureImage` (2.12) sets `originX: 'left', originY: 'top'` explicitly to avoid this.
-- **Every zoom/pan/fit-width change fully re-renders the document from page 1** (`PDFViewer.tsx`'s
+- **Resolved by 5.2 (§10): every zoom/pan/fit-width change fully re-renders the document from page 1** (`PDFViewer.tsx`'s
   `[pdfDoc, scale]` effect clears and rebuilds every page, not just the ones near the viewport) — on
   the `large-multipage.pdf` fixture this means a single zoom click blanks the whole viewport and
   re-decodes every page before the user's position reappears. Known, accepted for now: task 5.2
@@ -782,7 +865,7 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   comments about Fabric's own unrelated object-rotate handle and toolbar *button* ordering, not a page-level
   feature. Pinned with a regression test (`tests/Toolbar.test.tsx`, "the edit toolbar exposes exactly the 11
   required tools, in A1's required order, and nothing out-of-scope") asserting the toolbar's exact button
-  set/order (now Hand + 11 tools; the style control is a single popover for the active tool, not a per-annotation one).
+  set/order (Hand + 11 tools; the style control is a single popover for the active tool, not a per-annotation one).
 - **5.3/5.6 (size limits + server-side signature re-encoding):** signature images were already re-encoded
   client-side (`SignatureUploader.tsx`'s offscreen `<canvas>.toDataURL()`, task 2.12) but had no
   server-side re-check — a caller hitting the burn-in endpoint directly could send an arbitrary `image`
@@ -810,7 +893,7 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   their own follow-up lookup for. The one non-gated mutating route, `POST /api/attachments`, is the
   documented exception (creates a new row always owned by the caller — see §3.4). Pinned with
   `tests/routePermissionAudit.test.ts`, a static sweep over the route files' source (not an import — those
-  files pull in `pdf-lib` transitively, not installed in this sandbox) asserting every non-GET route
+  files pull in `pdf-lib` transitively) asserting every non-GET route
   handler is gated by `requirePermission`, so a future route added without it fails this test rather than
   shipping an IDOR silently. **Found in code review:** the sweep's own regex is narrow (single-quoted path,
   literal `async` handler) — a future route written differently (double-quoted/template-literal path, a
@@ -864,6 +947,4 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   the zoom factor (matching how the same on-screen spot maps to more client pixels at higher zoom) and
   confirms both produce an identical PDF-point-space box — closing the placement-time half of Risk R1 that
   the persistence-time test alone left uncovered.
-- **5.7:** `npm test` — 171 pass, 0 fail, 2 skipped (both pre-existing, requiring the still-uninstallable
-  `pdf-lib`, §9 — not introduced or worsened by this task). `npm run typecheck` — clean except the same
-  3 pre-existing `pdf-lib` module-resolution errors in `burn-in.ts`/`storage.ts`.
+- **5.7 (current status, re-run 2026-10-01):** `npm test` — 373 pass, 0 fail, 0 skipped. `npm run typecheck` — clean. (The earlier "171 pass / 2 skipped / 3 `pdf-lib` errors" figures predated `pdf-lib` being installed.)

@@ -8,6 +8,22 @@ export function changeAttachment(id, payload) {
   });
 }
 
+// Document editor: replaces the file's pages. `uploads` are base64 PDFs;
+// `pages` is the full new page list (see server/services/documentEdit.ts).
+export function editDocumentPages(attachmentId, payload) {
+  return request(`/api/attachments/${encodeURIComponent(attachmentId)}/pages`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function saveDraft(attachmentId, pages) {
+  return request(`/api/attachments/${encodeURIComponent(attachmentId)}/draft`, {
+    method: 'PUT',
+    body: JSON.stringify({ pages }),
+  });
+}
+
 export function changeAnnotation(attachmentId, annotationId, payload) {
   return request(
     `/api/attachments/${encodeURIComponent(attachmentId)}/annotations/${encodeURIComponent(annotationId)}`,

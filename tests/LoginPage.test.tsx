@@ -177,6 +177,9 @@ test('the login form does not enforce the signup password policy (existing accou
   await waitFor(() => {
     assert.equal(signInWithPassword.mock.callCount(), 1);
   });
+  // Let the submit handler finish (navigate + setSubmitting) before the test
+  // ends, or it runs after teardown and throws "window is not defined".
+  await new Promise((resolve) => setTimeout(resolve, 0));
 });
 
 test('the "Forgot your password?" and "Sign up" links navigate to their pages', async () => {

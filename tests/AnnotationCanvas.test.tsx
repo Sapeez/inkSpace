@@ -1375,3 +1375,111 @@ test('annotations get a trash control that requests the delete confirmation', as
   rect.controls.deleteControl.mouseUpHandler({}, {}, 0, 0);
   assert.equal(requested, 1);
 });
+
+// Text-selection markup: screen-space line boxes → annotation objects in the
+// page's own PDF-point space (at 1.5x zoom, 150 screen px = 100 points).
+async function markupFixture() {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} />);
+  const { wrapper, pdfCanvas } = makePageWrapper(900, 1200); // 1.5x
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  canvas.upperCanvasEl.getBoundingClientRect = () => ({ left: 100, top: 50, right: 1000, bottom: 1250, width: 900, height: 1200 });
+  return { ref, canvas };
+}
+
+test('text markup: highlight adds a translucent Rect at the selected text in PDF-point space', async () => {
+  const { ref, canvas } = await markupFixture();
+  const added = ref.current.addTextMarkup('highlight', [{ left: 250, top: 350, right: 550, bottom: 380 }]);
+
+  assert.equal(added, 1);
+  const [object] = canvas.getObjects();
+  assert.equal(object.toObject().type, 'Rect');
+  assert.equal(object.annotationTool, 'text-highlight');
+  assert.deepEqual([object.left, object.top, object.width, object.height], [100, 200, 200, 20]);
+  assert.ok(object.opacity < 1 && object.fill);
+});
+
+test('text markup: underline and strikethrough add horizontal Lines across the selection', async () => {
+  const { ref, canvas } = await markupFixture();
+  ref.current.addTextMarkup('underline', [{ left: 250, top: 350, right: 550, bottom: 380 }]);
+  ref.current.addTextMarkup('strikethrough', [{ left: 250, top: 350, right: 550, bottom: 380 }]);
+
+  const [underline, strike] = canvas.getObjects();
+  assert.equal(underline.toObject().type, 'Line');
+  assert.equal(underline.annotationTool, 'text-underline');
+  assert.equal(strike.annotationTool, 'text-strikethrough');
+  assert.equal(underline.width, 200);
+  assert.ok(underline.top > strike.top, 'underline sits below the strikethrough');
+});
+
+test('text markup: a multi-span selection on one line becomes one continuous mark; rects off the page are ignored', async () => {
+  const { ref, canvas } = await markupFixture();
+  const added = ref.current.addTextMarkup('highlight', [
+    { left: 250, top: 350, right: 400, bottom: 380 },
+    { left: 401, top: 351, right: 550, bottom: 381 },
+    { left: 5000, top: 5000, right: 5100, bottom: 5030 },
+  ]);
+  assert.equal(added, 1);
+  assert.equal(canvas.getObjects().length, 1);
+});
+
+// Document editor: annotations follow their page when pages are reordered,
+// deleted or rotated, and survive the swap to the edited document.
+async function documentEditFixture() {
+  const ref = createRef<any>();
+  const getPage = () => Promise.resolve(fakePage(1)); // every page 600 x 800
+  const oldDoc = fakePdfDoc(getPage);
+  const { rerender } = render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={oldDoc} style={DEFAULT_ANNOTATION_STYLE} />);
+
+  const mounted: Array<{ wrapper: HTMLDivElement; pdfCanvas: HTMLCanvasElement }> = [];
+  for (const pageNumber of [1, 2, 3]) {
+    const pair = makePageWrapper(600, 800);
+    mounted.push(pair);
+    await ref.current.handlePageRendered(pageNumber, pair.wrapper, pair.pdfCanvas);
+  }
+  // A marker rect per page, told apart by its `left`.
+  [1, 2, 3].forEach((pageNumber) => {
+    ref.current.getCanvas(pageNumber).add(new Rect({ left: pageNumber * 100, top: 50, width: 40, height: 20, originX: 'left', originY: 'top' }));
+  });
+
+  async function swapToEditedDocument(mapping: Array<{ oldPage: number; newPage: number; rotation: number }>, newPageCount: number) {
+    await ref.current.applyDocumentEdit(mapping);
+    const newDoc = { numPages: newPageCount, getPage };
+    rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={newDoc} style={DEFAULT_ANNOTATION_STYLE} />);
+    // The viewer re-renders the pages of the new document.
+    for (let pageNumber = 1; pageNumber <= newPageCount; pageNumber += 1) {
+      const pair = makePageWrapper(600, 800);
+      await ref.current.handlePageRendered(pageNumber, pair.wrapper, pair.pdfCanvas);
+    }
+  }
+  return { ref, swapToEditedDocument };
+}
+
+const lefts = (ref: { current: any }, pageNumber: number) => ref.current.getCanvas(pageNumber)?.getObjects().map((object: any) => object.left) ?? null;
+
+test('document edit: annotations move with their page when pages are reordered, and a deleted page\'s are dropped', async () => {
+  const { ref, swapToEditedDocument } = await documentEditFixture();
+  // New order: old page 3 first, old page 1 second; old page 2 deleted.
+  await swapToEditedDocument([{ oldPage: 3, newPage: 1, rotation: 0 }, { oldPage: 1, newPage: 2, rotation: 0 }], 2);
+
+  assert.deepEqual(lefts(ref, 1), [300]);
+  assert.deepEqual(lefts(ref, 2), [100]);
+  assert.equal(ref.current.getCanvas(3), null);
+  assert.deepEqual(ref.current.getAnnotationsForBurnIn().map((page: any) => page.pageNumber), [1, 2]);
+});
+
+test('document edit: rotating a page turns its annotations with it', async () => {
+  const { ref, swapToEditedDocument } = await documentEditFixture();
+  await swapToEditedDocument([
+    { oldPage: 1, newPage: 1, rotation: 90 },
+    { oldPage: 2, newPage: 2, rotation: 0 },
+    { oldPage: 3, newPage: 3, rotation: 0 },
+  ], 3);
+
+  // A 90° clockwise page turn sends canvas point (x, y) to (pageHeight - y, x): (100, 50) -> (750, 100).
+  const [rotated] = ref.current.getCanvas(1).getObjects();
+  assert.deepEqual([rotated.left, rotated.top, rotated.angle], [750, 100, 90]);
+  assert.deepEqual(lefts(ref, 2), [200], 'other pages are untouched');
+});

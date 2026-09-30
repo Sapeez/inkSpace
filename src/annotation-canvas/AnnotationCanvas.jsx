@@ -1,6 +1,8 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { Canvas, Control, Ellipse, FabricImage, Line, Path, PencilBrush, Rect, Textbox } from 'fabric';
 import { getMostVisiblePageNumber } from '../viewer/viewerPageTracking';
+import { rotateAnnotationObject } from './pageRotation';
+import { HIGHLIGHT_OPACITY, MARKUP_COLORS, MARKUP_LINE_WIDTH, markupShape, mergeLineBoxes } from './textMarkup';
 
 // A4: color/fill/stroke-width are one *global* style, owned by ViewerPage.jsx
 // (StyleControls.tsx) and passed in as the `style` prop — not per-tool, not
@@ -544,6 +546,31 @@ function getSelectedAnnotation(canvasesMap) {
 // editing, so checking `document.activeElement`'s tag also covers this case
 // for free, without this file needing to separately check the active
 // object's `isEditing` flag.
+// Ctrl/Cmd+B / I / U while a Textbox is mid-edit toggles bold / italic /
+// underline on the whole textbox (object-level, so burn-in needs no
+// per-character style handling). Returns true if the key was handled.
+const TEXT_FORMAT_KEYS = {
+  b: (text) => text.set('fontWeight', text.fontWeight === 'bold' ? 'normal' : 'bold'),
+  i: (text) => text.set('fontStyle', text.fontStyle === 'italic' ? 'normal' : 'italic'),
+  u: (text) => text.set('underline', !text.underline),
+};
+
+function toggleTextFormat(canvases, event) {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return false;
+  const apply = TEXT_FORMAT_KEYS[event.key.toLowerCase()];
+  if (!apply) return false;
+  for (const canvas of canvases.values()) {
+    const active = canvas.getActiveObject();
+    if (active instanceof Textbox && active.isEditing) {
+      apply(active);
+      active.initDimensions();
+      canvas.requestRenderAll();
+      return true;
+    }
+  }
+  return false;
+}
+
 function isEditableElementFocused() {
   const el = document.activeElement;
   if (!el) return false;
@@ -567,10 +594,11 @@ function isEditableElementFocused() {
 // matching the on-screen position at any zoom level (Risk R1).
 // `attachmentId` isn't used yet — kept in the signature for the save/load
 // wiring in task 3.x (persisting/loading the annotation JSON per attachment).
-const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pdfDoc, activeTool, style, onRequestDelete, onObjectCreated }, ref) {
+const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pdfDoc, activeTool, style, onRequestDelete, onObjectCreated, onChange }, ref) {
   const canvasesRef = useRef(new Map()); // pageNumber -> fabric.Canvas
   const savedStateRef = useRef(new Map()); // pageNumber -> fabric JSON (PDF point coords)
   const pdfDocRef = useRef(pdfDoc);
+  const preserveStateRef = useRef(false);
   // "Latest ref" pattern (same convention as PDFViewer.tsx): handlePageRendered
   // is async and called imperatively from outside React's render flow, so it
   // needs the tool/style that's active *now*, not whatever was active when
@@ -586,10 +614,17 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
   onRequestDeleteRef.current = onRequestDelete;
   const onObjectCreatedRef = useRef(onObjectCreated);
   onObjectCreatedRef.current = onObjectCreated;
+  // Fires after any user-driven change to the annotations (add/modify/remove,
+  // text typing) — drives the editor's draft autosave.
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
   if (pdfDocRef.current !== pdfDoc) {
-    // A genuinely different document — nothing to carry forward.
-    savedStateRef.current = new Map();
+    // A genuinely different document — nothing to carry forward, unless the
+    // Document editor just rewrote this one's pages (`applyDocumentEdit`), in
+    // which case the remapped annotations it stored must survive the swap.
+    if (preserveStateRef.current) preserveStateRef.current = false;
+    else savedStateRef.current = new Map();
     pdfDocRef.current = pdfDoc;
   }
 
@@ -618,6 +653,11 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
   // `isEditableElementFocused`) preserves that.
   useEffect(() => {
     function handleKeyDown(event) {
+      if (toggleTextFormat(canvasesRef.current, event)) {
+        // Suppress the browser's own Ctrl+B/I/U (bookmarks sidebar, etc.).
+        event.preventDefault();
+        return;
+      }
       if (event.key !== 'Delete' && event.key !== 'Backspace') return;
       if (isEditableElementFocused()) return;
       if (!getSelectedAnnotation(canvasesRef.current)) return;
@@ -650,6 +690,46 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
     });
   }, [style]);
 
+  // Autosave leaves out text boxes that are still empty (mid-edit, nothing
+  // typed yet) — they'd otherwise be restored as invisible, selectable junk.
+  function withoutEmptyText(objects) {
+    return objects.filter((object) => !(object.type === 'Textbox' && !String(object.text ?? '').trim()));
+  }
+
+  // Task 3.x (burn-in/download/save): collects every page's annotation
+  // objects, in this canvas's own PDF-point coordinate space (Risk R1 —
+  // no conversion needed, the server burns them in at face value). Live
+  // canvases (currently on screen) are read fresh via toJSON() rather
+  // than from `savedStateRef`, since a page's savedStateRef entry is only
+  // refreshed on teardown (handlePagesReset/a page-render replacing it) —
+  // reading it here instead would miss an edit made since the last
+  // zoom/pan. Pages that have been visited before but aren't currently
+  // mounted (savedStateRef only) are included from there; a page never
+  // visited has no entry either way, which is correct — nothing could
+  // have been drawn on it. Pages with zero objects are omitted so the
+  // server doesn't need to special-case an empty `objects` array.
+  function collectPages({ cancelGestures }) {
+    const pages = [];
+    const seenPages = new Set();
+    const keep = (objects) => (cancelGestures ? objects : withoutEmptyText(objects));
+
+    canvasesRef.current.forEach((canvas, pageNumber) => {
+      if (cancelGestures) cancelPendingGestures(canvas);
+      const json = canvas.toJSON(['annotationTool']);
+      seenPages.add(pageNumber);
+      const objects = keep(json.objects ?? []);
+      if (objects.length > 0) pages.push({ pageNumber, objects });
+    });
+
+    savedStateRef.current.forEach((json, pageNumber) => {
+      if (seenPages.has(pageNumber)) return;
+      const objects = keep(json.objects ?? []);
+      if (objects.length > 0) pages.push({ pageNumber, objects });
+    });
+
+    return pages.sort((a, b) => a.pageNumber - b.pageNumber);
+  }
+
   useImperativeHandle(
     ref,
     () => ({
@@ -667,6 +747,54 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
       // convert first.
       getCanvas(pageNumber) {
         return canvasesRef.current.get(pageNumber) ?? null;
+      },
+
+      // Text-selection markup (highlight / underline / strikethrough): turns the
+      // screen-space line boxes of a text selection into real annotation objects
+      // on whichever page(s) they fall on, in that canvas's own PDF-point space
+      // (screen px → points via `getZoom()`, same Risk R1 guarantee as every
+      // other tool). Highlight is a translucent Rect, underline/strikethrough
+      // are Lines — all three shapes burn-in already draws.
+      addTextMarkup(kind, clientRects) {
+        let added = 0;
+        canvasesRef.current.forEach((canvas) => {
+          const pageRect = canvas.upperCanvasEl.getBoundingClientRect();
+          const zoom = canvas.getZoom();
+          const onThisPage = clientRects.filter((rect) => {
+            const centerX = (rect.left + rect.right) / 2;
+            const centerY = (rect.top + rect.bottom) / 2;
+            return centerX >= pageRect.left && centerX <= pageRect.right && centerY >= pageRect.top && centerY <= pageRect.bottom;
+          });
+          mergeLineBoxes(onThisPage).forEach((box) => {
+            const shape = markupShape(kind, {
+              left: (box.left - pageRect.left) / zoom,
+              top: (box.top - pageRect.top) / zoom,
+              right: (box.right - pageRect.left) / zoom,
+              bottom: (box.bottom - pageRect.top) / zoom,
+            });
+            const object =
+              shape.type === 'rect'
+                ? new Rect({
+                    left: shape.left,
+                    top: shape.top,
+                    width: shape.width,
+                    height: shape.height,
+                    originX: 'left',
+                    originY: 'top',
+                    fill: MARKUP_COLORS.highlight,
+                    strokeWidth: 0,
+                    opacity: HIGHLIGHT_OPACITY,
+                  })
+                : new Line([shape.x1, shape.y1, shape.x2, shape.y2], {
+                    stroke: MARKUP_COLORS[kind],
+                    strokeWidth: MARKUP_LINE_WIDTH,
+                  });
+            canvas.add(tag(object, `text-${kind}`));
+            added += 1;
+          });
+          canvas.requestRenderAll();
+        });
+        return added;
       },
 
       // A6: called by ViewerPage.jsx only after the user confirms the
@@ -748,39 +876,67 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
         return true;
       },
 
-      // Task 3.x (burn-in/download/save): collects every page's annotation
-      // objects, in this canvas's own PDF-point coordinate space (Risk R1 —
-      // no conversion needed, the server burns them in at face value). Live
-      // canvases (currently on screen) are read fresh via toJSON() rather
-      // than from `savedStateRef`, since a page's savedStateRef entry is only
-      // refreshed on teardown (handlePagesReset/a page-render replacing it) —
-      // reading it here instead would miss an edit made since the last
-      // zoom/pan. Pages that have been visited before but aren't currently
-      // mounted (savedStateRef only) are included from there; a page never
-      // visited has no entry either way, which is correct — nothing could
-      // have been drawn on it. Pages with zero objects are omitted so the
-      // server doesn't need to special-case an empty `objects` array.
+      // Same per-page JSON as getAnnotationsForBurnIn, for autosave: does NOT
+      // cancel in-progress gestures (that would kick the user out of text
+      // editing mid-word), and leaves out text boxes that are still empty.
+      getDraftPages() {
+        return collectPages({ cancelGestures: false });
+      },
+
+      // Puts a previously autosaved draft back on the pages (already-mounted
+      // canvases now, not-yet-rendered ones when they attach). Refuses to
+      // overwrite annotations the user has already started making.
+      // Document editor: the file's pages were just reordered / deleted / rotated /
+      // interleaved with uploads. Moves every page's annotations to where their page
+      // went (dropping a deleted page's, turning a rotated page's with it — see
+      // pageRotation.ts), tears the live canvases down without letting them write
+      // their pre-edit content back, and keeps the result for the new document's
+      // pages to load. `mapping` is [{ oldPage, newPage, rotation }], 1-based.
+      async applyDocumentEdit(mapping) {
+        const doc = pdfDocRef.current;
+        const current = collectPages({ cancelGestures: true });
+        const next = new Map();
+        for (const { oldPage, newPage, rotation } of mapping) {
+          const entry = current.find((page) => page.pageNumber === oldPage);
+          if (!entry) continue;
+          let { objects } = entry;
+          if (rotation) {
+            const { width, height } = (await doc.getPage(oldPage)).getViewport({ scale: 1 });
+            objects = objects.map((object) => rotateAnnotationObject(object, rotation, width, height));
+          }
+          next.set(newPage, { objects });
+        }
+        canvasesRef.current.forEach((canvas) => {
+          canvas.__restoring = true;
+          canvas.dispose();
+        });
+        canvasesRef.current.clear();
+        savedStateRef.current = next;
+        preserveStateRef.current = true;
+      },
+
+      async restoreDraft(pages) {
+        if (collectPages({ cancelGestures: false }).length > 0) return false;
+        for (const { pageNumber, objects } of pages) {
+          const json = { objects };
+          savedStateRef.current.set(pageNumber, json);
+          const canvas = canvasesRef.current.get(pageNumber);
+          if (canvas) {
+            canvas.__restoring = true;
+            try {
+              await canvas.loadFromJSON(json);
+            } finally {
+              canvas.__restoring = false;
+            }
+            applyActiveTool(canvas, activeToolRef.current, styleRef.current);
+            canvas.requestRenderAll();
+          }
+        }
+        return true;
+      },
+
       getAnnotationsForBurnIn() {
-        const pages = [];
-        const seenPages = new Set();
-
-        canvasesRef.current.forEach((canvas, pageNumber) => {
-          cancelPendingGestures(canvas);
-          const json = canvas.toJSON(['annotationTool']);
-          seenPages.add(pageNumber);
-          if (json.objects && json.objects.length > 0) {
-            pages.push({ pageNumber, objects: json.objects });
-          }
-        });
-
-        savedStateRef.current.forEach((json, pageNumber) => {
-          if (seenPages.has(pageNumber)) return;
-          if (json.objects && json.objects.length > 0) {
-            pages.push({ pageNumber, objects: json.objects });
-          }
-        });
-
-        return pages.sort((a, b) => a.pageNumber - b.pageNumber);
+        return collectPages({ cancelGestures: true });
       },
 
       handlePagesReset() {
@@ -788,6 +944,7 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
           // Must run before toJSON() — see cancelPendingGestures's comment.
           cancelPendingGestures(canvas);
           savedStateRef.current.set(pageNumber, canvas.toJSON(['annotationTool']));
+          canvas.__restoring = true;
           canvas.dispose();
         });
         canvasesRef.current.clear();
@@ -801,6 +958,7 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
         if (existing) {
           cancelPendingGestures(existing);
           savedStateRef.current.set(pageNumber, existing.toJSON(['annotationTool']));
+          existing.__restoring = true;
           existing.dispose();
           canvasesRef.current.delete(pageNumber);
         }
@@ -824,6 +982,29 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
           width: nativeViewport.width,
           height: nativeViewport.height,
           selection: true,
+        });
+
+        // Hand tool + text layer: the overlay canvas only takes pointer events
+        // while the cursor is over an annotation; over bare text it steps aside
+        // (`pointer-events: none`) so the text layer underneath shows an I-beam
+        // and supports native text selection. A press on bare page area
+        // deselects any selected annotation itself, since Fabric never sees it.
+        pageWrapper.addEventListener('mousemove', (event) => {
+          if (activeToolRef.current !== HAND_TOOL || event.buttons !== 0) return;
+          canvas.upperCanvasEl.style.pointerEvents = canvas.findTarget(event).target ? 'auto' : 'none';
+        });
+        pageWrapper.addEventListener('pointerdown', (event) => {
+          if (activeToolRef.current !== HAND_TOOL || event.target === canvas.upperCanvasEl) return;
+          if (canvas.getActiveObject()) {
+            canvas.discardActiveObject();
+            canvas.requestRenderAll();
+          }
+        });
+
+        ['object:added', 'object:modified', 'object:removed', 'text:changed'].forEach((eventName) => {
+          canvas.on(eventName, () => {
+            if (!canvas.__restoring) onChangeRef.current?.();
+          });
         });
 
         canvas.__onObjectCreated = () => onObjectCreatedRef.current?.();
@@ -952,7 +1133,12 @@ const AnnotationCanvas = forwardRef(function AnnotationCanvas({ attachmentId, pd
 
         const savedJson = savedStateRef.current.get(pageNumber);
         if (savedJson) {
-          await canvas.loadFromJSON(savedJson);
+          canvas.__restoring = true;
+          try {
+            await canvas.loadFromJSON(savedJson);
+          } finally {
+            canvas.__restoring = false;
+          }
         }
         // Applied after loadFromJSON (not just before) in case restoring
         // objects ever touches canvas-level interaction state.

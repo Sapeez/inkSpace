@@ -131,3 +131,33 @@ export function buildTransformedPolygonString(
   const mapped = points.map(transformPoint);
   return `${mapped.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')} Z`;
 }
+
+export type Matrix = [number, number, number, number, number, number];
+
+// PDF `cm` matrix that maps a point in the page *as displayed* (y-up, size
+// swapped for 90/270) back to the page's own unrotated user space, for a page
+// carrying `/Rotate` = `rotation` (clockwise). Annotations are authored against
+// the displayed page, so burn-in draws them inside this transform. `width` and
+// `height` are the page's unrotated dimensions.
+export function displayToUserMatrix(rotation: number, width: number, height: number): Matrix {
+  switch (((rotation % 360) + 360) % 360) {
+    case 90:
+      return [0, 1, -1, 0, width, 0];
+    case 180:
+      return [-1, 0, 0, -1, width, height];
+    case 270:
+      return [0, -1, 1, 0, 0, height];
+    default:
+      return [1, 0, 0, 1, 0, 0];
+  }
+}
+
+// `cm` matrix rotating by `clockwiseDegrees` (as Fabric's `angle` reads on the
+// y-down canvas) about the PDF-space point (px, py) — Fabric rotates an object
+// about its (left, top) origin point.
+export function rotationAboutMatrix(px: number, py: number, clockwiseDegrees: number): Matrix {
+  const phi = (-clockwiseDegrees * Math.PI) / 180; // y flips between canvas and PDF space
+  const cos = Math.cos(phi);
+  const sin = Math.sin(phi);
+  return [cos, sin, -sin, cos, px - cos * px + sin * py, py - sin * px - cos * py];
+}

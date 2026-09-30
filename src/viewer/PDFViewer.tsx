@@ -6,6 +6,8 @@ import { getMostVisiblePageNumber, scrollToPage } from './viewerPageTracking';
 const MIN_SCALE = 0.5;
 const MAX_SCALE = 3;
 const SCALE_STEP = 0.25;
+// Accumulated wheel deltaY (px) that triggers one SCALE_STEP.
+const WHEEL_ZOOM_THRESHOLD = 40;
 
 // Risk R2/task 5.2: how far past the visible viewport (in CSS pixels, along
 // the scroll axis) a page is still eagerly rasterized — large enough that a
@@ -26,6 +28,10 @@ interface PDFViewerProps {
   // reattach without leaking Fabric's internal listeners or losing state.
   onPageRendered?: (pageNumber: number, pageWrapper: HTMLDivElement, pdfCanvas: HTMLCanvasElement) => void;
   onPagesReset?: () => void;
+  // Editor only: builds a pdf.js text layer over each page (transparent,
+  // selectable text) so text can be hovered (I-beam) and selected for markup.
+  // The read-only preview leaves this off — no text is selectable there (V8).
+  textLayer?: boolean;
 }
 
 interface PanState {
@@ -37,7 +43,8 @@ interface PanState {
 }
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest('button, input, a') !== null;
+  // Text-layer spans count: dragging across text selects it instead of panning.
+  return target instanceof Element && target.closest('button, input, a, .pdf-text-layer span') !== null;
 }
 
 export default function PDFViewer({
@@ -46,6 +53,7 @@ export default function PDFViewer({
   error: documentError,
   onPageRendered,
   onPagesReset,
+  textLayer = false,
 }: PDFViewerProps) {
   const viewerRef = useRef<HTMLDivElement>(null);
   const pagesContainerRef = useRef<HTMLDivElement>(null);
@@ -73,6 +81,8 @@ export default function PDFViewer({
   latestOnPageRenderedRef.current = onPageRendered;
   const latestOnPagesResetRef = useRef(onPagesReset);
   latestOnPagesResetRef.current = onPagesReset;
+  const textLayerEnabledRef = useRef(textLayer);
+  textLayerEnabledRef.current = textLayer;
 
   function cancelPan() {
     const panState = panStateRef.current;
@@ -85,6 +95,7 @@ export default function PDFViewer({
   useEffect(() => {
     let cancelled = false;
     const renderTasks: RenderTask[] = [];
+    const textLayers: Array<{ cancel: () => void }> = [];
     let observer: IntersectionObserver | null = null;
     const isNewDocument = prevPdfDocRef.current !== pdfDoc;
     const effectiveScale = isNewDocument ? 1 : scale;
@@ -145,6 +156,34 @@ export default function PDFViewer({
       if (cancelled) return;
 
       latestOnPageRenderedRef.current?.(entry.pageNumber, entry.pageWrapper, canvas);
+
+      if (textLayerEnabledRef.current) {
+        // Not awaited: the page is already usable; text selection just becomes
+        // available a moment later. A failure only means no selectable text.
+        buildTextLayer(entry).catch((err) => {
+          if (!cancelled) console.warn('PDFViewer: could not build text layer', err);
+        });
+      }
+    }
+
+    async function buildTextLayer(entry: PageEntry) {
+      if (typeof entry.page.streamTextContent !== 'function') return;
+      // Loaded lazily so the read-only preview and tests never pull it in.
+      const { TextLayer } = await import('pdfjs-dist');
+      if (cancelled || !entry.pageWrapper.isConnected) return;
+
+      const container = document.createElement('div');
+      container.className = 'pdf-text-layer';
+      container.style.setProperty('--total-scale-factor', String(entry.viewport.scale));
+      entry.pageWrapper.appendChild(container);
+
+      const layer = new TextLayer({
+        textContentSource: entry.page.streamTextContent(),
+        container,
+        viewport: entry.viewport,
+      });
+      textLayers.push(layer);
+      await layer.render();
     }
 
     async function renderPages() {
@@ -243,6 +282,7 @@ export default function PDFViewer({
       cancelled = true;
       observer?.disconnect();
       renderTasks.forEach((task) => task.cancel());
+      textLayers.forEach((layer) => layer.cancel());
       latestOnPagesResetRef.current?.();
       const container = viewerRef.current;
       if (container) {
@@ -267,6 +307,40 @@ export default function PDFViewer({
   function zoomOut() {
     setScale((current) => Math.max(MIN_SCALE, Math.round((current - SCALE_STEP) * 100) / 100));
   }
+
+  const zoomInRef = useRef(zoomIn);
+  zoomInRef.current = zoomIn;
+  const zoomOutRef = useRef(zoomOut);
+  zoomOutRef.current = zoomOut;
+
+  // Ctrl/Cmd + mouse wheel, and trackpad pinch (browsers report pinch as a
+  // wheel event with ctrlKey set). Attached natively rather than via React's
+  // `onWheel`, which is passive and so can't preventDefault the browser's own
+  // page zoom. Deltas are accumulated into discrete SCALE_STEPs because every
+  // scale change re-renders the whole document; events arriving mid-render
+  // are swallowed (still preventDefault'd) rather than queued.
+  const renderingRef = useRef(rendering);
+  renderingRef.current = rendering;
+  useEffect(() => {
+    const container = viewerRef.current;
+    if (!container) return;
+    let accumulated = 0;
+    function handleWheel(event: WheelEvent) {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      if (renderingRef.current) {
+        accumulated = 0;
+        return;
+      }
+      accumulated += event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+      if (Math.abs(accumulated) < WHEEL_ZOOM_THRESHOLD) return;
+      if (accumulated < 0) zoomInRef.current();
+      else zoomOutRef.current();
+      accumulated = 0;
+    }
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, []);
 
   async function fitWidth() {
     if (!pdfDoc || rendering) return;

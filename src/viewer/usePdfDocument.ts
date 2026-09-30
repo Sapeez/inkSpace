@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.mjs?url';
@@ -43,6 +43,9 @@ interface UsePdfDocumentResult {
   // NoAccessState.tsx instead of the viewer chrome in that case, rather than
   // showing this hook's generic `error` string inside the normal layout.
   accessDenied: boolean;
+  // Fetches the file again (e.g. after the Document editor changed its pages) and
+  // swaps the new document in without an empty/loading flash in between.
+  reload: () => Promise<void>;
 }
 
 export function usePdfDocument(attachmentId: string): UsePdfDocumentResult {
@@ -51,6 +54,9 @@ export function usePdfDocument(attachmentId: string): UsePdfDocumentResult {
   const [error, setError] = useState<string | null>(null);
   const [attachment, setAttachment] = useState<AttachmentDownload | null>(null);
   const [accessDenied, setAccessDenied] = useState(false);
+  // The document currently shown — kept in a ref so `reload()` can replace it and
+  // the effect's cleanup still destroys whichever one is live.
+  const docRef = useRef<PDFDocumentProxy | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,6 +83,7 @@ export function usePdfDocument(attachmentId: string): UsePdfDocumentResult {
           return;
         }
 
+        docRef.current = doc;
         setPdfDoc(doc);
         setLoading(false);
       } catch (err) {
@@ -93,9 +100,23 @@ export function usePdfDocument(attachmentId: string): UsePdfDocumentResult {
 
     return () => {
       cancelled = true;
-      void doc?.destroy();
+      void docRef.current?.destroy();
+      if (docRef.current !== doc) void doc?.destroy();
+      docRef.current = null;
     };
   }, [attachmentId]);
 
-  return { pdfDoc, loading, error, attachment, accessDenied };
+  const reload = useCallback(async () => {
+    const fetched: unknown = await fetchAttachment(attachmentId);
+    if (!isAttachmentDownload(fetched)) throw new Error('Malformed attachment response');
+    const next = await getDocument(fetched.url).promise;
+    const previous = docRef.current;
+    docRef.current = next;
+    setAttachment(fetched);
+    setPdfDoc(next);
+    // The viewer is still tearing the old pages down as this swap commits.
+    if (previous) window.setTimeout(() => void previous.destroy(), 2000);
+  }, [attachmentId]);
+
+  return { pdfDoc, loading, error, attachment, accessDenied, reload };
 }

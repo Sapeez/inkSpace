@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import type { WorkspaceAttachment } from './types';
 import { fetchAttachment } from '../lib/index.js';
 
@@ -27,12 +26,9 @@ function formatFileSize(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1024))}KB`;
 }
 
-// WF9: per-file actions (edit, download, delete), directly on the file list.
-// Clicking the file name opens the read-only preview instead (`/view/:id`);
-// Edit opens the annotating viewer (`/edit/:id`).
+// WF9: per-file actions (download, delete), directly on the file list.
+// Clicking the file name opens the annotating viewer (`/edit/:id`).
 export default function FileActions({ file, onDelete }: FileActionsProps) {
-  const navigate = useNavigate();
-
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
   async function handleDownload() {
@@ -66,15 +62,6 @@ export default function FileActions({ file, onDelete }: FileActionsProps) {
           {downloadError}
         </span>
       )}
-      <button type="button" className="file-edit-button" data-testid="file-actions-open" aria-label={`Annotate ${file.filename}`} onClick={() => navigate(`/edit/${file.id}`)}>
-        <svg className="file-edit-icon" fill="none" height="24" viewBox="0 0 24 24" width="24" aria-hidden="true">
-          <g stroke="#a649da" strokeLinecap="round" strokeWidth="2">
-            <path d="m20 20h-16" />
-            <path clipRule="evenodd" d="m14.5858 4.41422c.781-.78105 2.0474-.78105 2.8284 0 .7811.78105.7811 2.04738 0 2.82843l-8.28322 8.28325-3.03046.202.20203-3.0304z" fillRule="evenodd" />
-          </g>
-        </svg>
-        <span className="file-button-tooltip">Annotate</span>
-      </button>
       <button
         type="button"
         className="file-download-button"

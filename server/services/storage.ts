@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { PDFDocument } from 'pdf-lib';
 import { supabase } from '../lib/supabaseClient.js';
 import type { Database } from '../../src/lib/database.types.js';
+import { applyPageEdits } from './documentEdit.js';
+import type { PageSpec } from './documentEdit.js';
+import { MAX_UPLOAD_BYTES, formatMegabytes } from '../../src/utils/uploadLimits.js';
 
 // Hand-maintained until `supabase gen types` is run for this table (typescript-standard.md §2.7).
 interface AttachmentRow {
@@ -26,6 +29,9 @@ export interface AttachmentSummary {
   folderId: string | null;
   createdAt: string;
   updatedAt: string;
+  // When the file's autosaved annotation draft was last changed; null if it has
+  // no (non-empty) draft. Drives the workspace's Recent grid.
+  draftUpdatedAt: string | null;
 }
 
 interface AttachmentDownload {
@@ -133,7 +139,10 @@ export async function listAttachments(ownerId: string, folderFilter?: string): P
     throw Object.assign(new Error(`Could not list attachments: ${error.message}`), { status: 500 });
   }
 
-  return (data as AttachmentListRow[]).map((row) => ({
+  const rows = data as AttachmentListRow[];
+  const draftUpdatedAt = await listDraftTimes(rows.map((row) => row.id));
+
+  return rows.map((row) => ({
     id: row.id,
     filename: row.filename,
     mimeType: row.mime_type,
@@ -142,7 +151,25 @@ export async function listAttachments(ownerId: string, folderFilter?: string): P
     folderId: row.folder_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    draftUpdatedAt: draftUpdatedAt.get(row.id) ?? null,
   }));
+}
+
+// Times only (never the draft's own `pages`, which can be megabytes). Drafts
+// emptied of every annotation don't count as recent activity.
+async function listDraftTimes(attachmentIds: string[]): Promise<Map<string, string>> {
+  const times = new Map<string, string>();
+  if (attachmentIds.length === 0) return times;
+  const { data, error } = await supabase
+    .from('attachment_drafts')
+    .select('attachment_id, updated_at')
+    .in('attachment_id', attachmentIds)
+    .neq('pages', '[]');
+  if (error) {
+    throw Object.assign(new Error(`Could not list drafts: ${error.message}`), { status: 500 });
+  }
+  for (const row of data) times.set(row.attachment_id, row.updated_at);
+  return times;
 }
 
 // WF9: deletes the Storage object before the DB row (same ordering
@@ -214,6 +241,59 @@ export async function downloadAttachment(attachmentId: string): Promise<Attachme
 // Task 3.2 (burn-in): unlike `downloadAttachment`, this fetches the actual
 // file bytes server-side (not a signed URL for the browser) — pdf-lib needs
 // the real bytes to load and mutate the PDF in `burn-in.ts`.
+// Document editor: rewrites the file's pages (reorder / delete / rotate / insert
+// uploaded PDFs) and replaces the file's PDF — unlike burn-in, which never
+// touches the original. The edited bytes go to a *new* Storage path (same
+// attachment row, `storage_path` repointed, old object removed afterwards) rather
+// than overwriting in place, so no CDN/cache can keep serving the old pages.
+// `attachments.updated_at` moves via its trigger, so "Last modified" reflects the
+// edit. The caller (route) has already proven ownership.
+export async function editAttachmentPages(
+  attachmentId: string,
+  uploadsBase64: string[],
+  pages: PageSpec[],
+): Promise<{ pageCount: number; byteSize: number }> {
+  const uploads = uploadsBase64.map((encoded) => {
+    if (Buffer.byteLength(encoded, 'base64') > MAX_UPLOAD_BYTES) {
+      throw Object.assign(new Error(`An uploaded file exceeds the ${formatMegabytes(MAX_UPLOAD_BYTES)} limit`), { status: 400 });
+    }
+    return new Uint8Array(Buffer.from(encoded, 'base64'));
+  });
+
+  const { data: row, error: rowError } = await supabase
+    .from('attachments')
+    .select('storage_path, owner_id')
+    .eq('id', attachmentId)
+    .single();
+  if (rowError || !row) {
+    throw Object.assign(new Error(`Attachment not found: ${attachmentId}`), { status: 404 });
+  }
+
+  const { bytes: originalBytes } = await downloadAttachmentBytes(attachmentId);
+  const edited = await applyPageEdits(originalBytes, uploads, pages);
+
+  const bucket = requireBucket();
+  const newPath = `attachments/${row.owner_id}/${randomUUID()}.pdf`;
+  const upload = await supabase.storage.from(bucket).upload(newPath, edited, { contentType: 'application/pdf' });
+  if (upload.error) {
+    throw Object.assign(new Error(`Could not save the edited document: ${upload.error.message}`), { status: 500 });
+  }
+
+  const { error: updateError } = await supabase
+    .from('attachments')
+    .update({ storage_path: newPath, byte_size: edited.length, page_count: pages.length })
+    .eq('id', attachmentId);
+  if (updateError) {
+    await supabase.storage.from(bucket).remove([newPath]); // the row still points at the old file
+    throw Object.assign(new Error(`Could not update the document record: ${updateError.message}`), { status: 500 });
+  }
+
+  // Best effort: the edit is already saved; a leftover object is only wasted space.
+  await supabase.storage.from(bucket).remove([row.storage_path]);
+
+  return { pageCount: pages.length, byteSize: edited.length };
+}
+
 export async function downloadAttachmentBytes(attachmentId: string): Promise<{ filename: string; bytes: Uint8Array }> {
   const { data, error: attachmentError } = await supabase
     .from('attachments')

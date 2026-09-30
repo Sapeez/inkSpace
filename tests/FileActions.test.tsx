@@ -23,18 +23,11 @@ function renderActions(onDelete = mock.fn()) {
     <MemoryRouter initialEntries={['/workspace']}>
       <Routes>
         <Route path="/workspace" element={<FileActions file={FILE} onDelete={onDelete} />} />
-        <Route path="/edit/:attachmentId" element={<div data-testid="editor-landed" />} />
       </Routes>
     </MemoryRouter>,
   );
   return { onDelete };
 }
-
-test('WF9: Edit navigates to the file\'s annotating editor route', async () => {
-  renderActions();
-  fireEvent.click(screen.getByTestId(TEST_IDS.FILE_ACTIONS_OPEN));
-  assert.ok(screen.getByTestId('editor-landed'));
-});
 
 test('WF9: Delete calls onDelete with the file id', () => {
   const { onDelete } = renderActions();

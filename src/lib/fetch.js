@@ -5,6 +5,11 @@ export function fetchAttachment(id) {
   return request(`/api/attachments/${encodeURIComponent(id)}`);
 }
 
+// Autosaved annotation draft: `{ pages, updatedAt }` (`pages: []`/`updatedAt: null` when none).
+export function fetchDraft(attachmentId) {
+  return request(`/api/attachments/${encodeURIComponent(attachmentId)}/draft`);
+}
+
 export function fetchAttachments(params = {}) {
   const query = new URLSearchParams(params).toString();
   return request(`/api/attachments${query ? `?${query}` : ''}`);

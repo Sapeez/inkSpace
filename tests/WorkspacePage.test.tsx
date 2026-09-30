@@ -80,12 +80,15 @@ function installFakeApi(initial: { attachments?: FakeAttachment[] } = {}) {
 }
 
 function renderWorkspacePage(signOut = mock.fn(async () => ({ error: null }))) {
+  const auth = {
+    signOut,
+    updateUser: mock.fn(async () => ({ error: null })),
+  };
   render(
     <MemoryRouter initialEntries={['/workspace']}>
       <Routes>
-        <Route path="/workspace" element={<WorkspacePage auth={{ signOut } as never} />} />
+        <Route path="/workspace" element={<WorkspacePage auth={auth as never} />} />
         <Route path="/login" element={<div data-testid="login-landed" />} />
-        <Route path="/view/:attachmentId" element={<div data-testid="viewer-landed" />} />
         <Route path="/edit/:attachmentId" element={<div data-testid="editor-landed" />} />
       </Routes>
     </MemoryRouter>,
@@ -198,21 +201,7 @@ test('§4.4/WF9: cancelling the delete confirmation leaves the file in place', a
   assert.ok(screen.getByTestId(TEST_IDS.FILE_LIST_ITEM), 'the file must still be there after cancelling');
 });
 
-test('WF9: Edit navigates to the annotating editor route', async () => {
-  installFakeApi({
-    attachments: [{ id: 'a1', filename: 'report.pdf', mimeType: 'application/pdf', pageCount: 1, byteSize: 1048576, folderId: null, createdAt: NOW, updatedAt: NOW }],
-  });
-  renderWorkspacePage();
-
-  await waitFor(() => screen.getByTestId(TEST_IDS.FILE_ACTIONS_OPEN));
-  fireEvent.click(screen.getByTestId(TEST_IDS.FILE_ACTIONS_OPEN));
-
-  await waitFor(() => {
-    assert.ok(screen.getByTestId('editor-landed'));
-  });
-});
-
-test('WF9: clicking a file name opens the read-only preview route', async () => {
+test('WF9: clicking a file name opens the annotating editor route', async () => {
   installFakeApi({
     attachments: [{ id: 'a1', filename: 'report.pdf', mimeType: 'application/pdf', pageCount: 1, byteSize: 1048576, folderId: null, createdAt: NOW, updatedAt: NOW }],
   });
@@ -222,6 +211,76 @@ test('WF9: clicking a file name opens the read-only preview route', async () => 
   fireEvent.click(screen.getByTestId(TEST_IDS.FILE_LIST_ITEM_NAME));
 
   await waitFor(() => {
-    assert.ok(screen.getByTestId('viewer-landed'));
+    assert.ok(screen.getByTestId('editor-landed'));
   });
+});
+
+test('shows the dots loader, not the empty state, while the file list is loading', async () => {
+  const pending: Array<() => void> = [];
+  globalThis.fetch = (async () => {
+    await new Promise<void>((resolve) => {
+      pending.push(resolve);
+    });
+    return jsonResponse([]);
+  }) as typeof fetch;
+  renderWorkspacePage();
+
+  assert.ok(screen.getByTestId('workspace-loading'));
+  assert.equal(screen.queryByText(/no files/i), null, 'empty state must not show mid-load');
+
+  await waitFor(() => assert.ok(pending.length > 0, 'list request not issued yet'));
+  pending.forEach((resolve) => resolve());
+  // Boolean, not assert.equal(element, null): a failed poll would make Node diff the whole jsdom node, which takes minutes.
+  await waitFor(() => assert.ok(screen.queryByTestId('workspace-loading') === null, 'loader still showing'));
+});
+
+test('Settings opens as a modal over the workspace (no navigation) and closes again', async () => {
+  installFakeApi();
+  renderWorkspacePage();
+
+  fireEvent.click(screen.getByTestId('account-menu-button'));
+  fireEvent.click(screen.getByTestId('settings-link'));
+
+  assert.ok(await screen.findByTestId('settings-modal'));
+  assert.ok(screen.getByTestId('workspace-page'), 'the workspace stays mounted behind the modal');
+  assert.equal(screen.queryByTestId('account-menu'), null, 'the account menu closes when Settings opens');
+
+  fireEvent.click(screen.getByTestId('settings-close-button'));
+  assert.equal(screen.queryByTestId('settings-modal'), null);
+});
+
+function pdfFiles(count: number): File[] {
+  return Array.from({ length: count }, (_, i) => new window.File(['%PDF-1.4'], `doc${i}.pdf`, { type: 'application/pdf' }));
+}
+
+test('upload: up to 5 files can be uploaded in one go', async () => {
+  const api = installFakeApi();
+  renderWorkspacePage();
+  await waitFor(() => assert.ok(screen.getByTestId(TEST_IDS.WORKSPACE_EMPTY_FILES)));
+
+  fireEvent.change(screen.getByTestId('workspace-upload-input'), { target: { files: pdfFiles(5) } });
+
+  await waitFor(() => {
+    const error = screen.queryByTestId('workspace-upload-error');
+    assert.equal(api.attachments.length, 5, error?.textContent ?? 'no error shown');
+  });
+  await waitFor(() => assert.equal(screen.getAllByTestId(TEST_IDS.FILE_LIST_ITEM).length, 5));
+  // The handler's last step re-enables the button; wait for it so nothing runs after teardown.
+  await waitFor(() => assert.ok(!(screen.getByTestId('workspace-upload-button') as HTMLButtonElement).disabled, 'still uploading'));
+  assert.equal(screen.queryByTestId('workspace-upload-error'), null);
+});
+
+test('upload: selecting more than 5 files uploads only the first 5, with no warning', async () => {
+  const api = installFakeApi();
+  renderWorkspacePage();
+  await waitFor(() => assert.ok(screen.getByTestId(TEST_IDS.WORKSPACE_EMPTY_FILES)));
+
+  fireEvent.change(screen.getByTestId('workspace-upload-input'), { target: { files: pdfFiles(6) } });
+
+  await waitFor(() => assert.equal(api.attachments.length, 5));
+  // Wait for the post-upload list refresh so nothing runs after teardown.
+  await waitFor(() => assert.equal(screen.getAllByTestId(TEST_IDS.FILE_LIST_ITEM).length, 5));
+  // The handler's last step re-enables the button; wait for it so nothing runs after teardown.
+  await waitFor(() => assert.ok(!(screen.getByTestId('workspace-upload-button') as HTMLButtonElement).disabled, 'still uploading'));
+  assert.equal(screen.queryByTestId('workspace-upload-error'), null);
 });

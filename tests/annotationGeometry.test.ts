@@ -115,3 +115,45 @@ test('buildTransformedPolygonString: closes the loop back to the first (transfor
   const result = buildTransformedPolygonString(points, (p) => p);
   assert.equal(result, 'M 0 0 L 10 0 L 10 10 Z');
 });
+
+// Cross-check against pdf.js's own viewport math (the renderer that decides what
+// "displayed" means): a displayed point, pushed through `displayToUserMatrix`,
+// must land on the user-space point pdf.js says sits there.
+test('displayToUserMatrix agrees with pdf.js for every /Rotate value', async () => {
+  const { PDFDocument, degrees } = await import('pdf-lib');
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const { displayToUserMatrix } = await import('../server/services/annotationGeometry.js');
+
+  const width = 200;
+  const height = 100;
+  for (const rotation of [0, 90, 180, 270]) {
+    const doc = await PDFDocument.create();
+    doc.addPage([width, height]).setRotation(degrees(rotation));
+    const pdf = await getDocument({ data: new Uint8Array(await doc.save()) }).promise;
+    const viewport = (await pdf.getPage(1)).getViewport({ scale: 1 });
+    assert.equal(viewport.width, rotation % 180 === 0 ? width : height);
+
+    for (const [displayX, displayYdown] of [[0, 0], [30, 10], [viewport.width, viewport.height], [7, 61]] as const) {
+      const [expectedX, expectedY] = viewport.convertToPdfPoint(displayX, displayYdown);
+      const displayYup = viewport.height - displayYdown;
+      const [a, b, c, d, e, f] = displayToUserMatrix(rotation, width, height);
+      const x = a * displayX + c * displayYup + e;
+      const y = b * displayX + d * displayYup + f;
+      assert.ok(Math.abs(x - expectedX!) < 1e-6 && Math.abs(y - expectedY!) < 1e-6, `rotation ${rotation} at (${displayX}, ${displayYdown}): got (${x}, ${y}), pdf.js says (${expectedX}, ${expectedY})`);
+    }
+  }
+});
+
+test('rotationAboutMatrix keeps its pivot fixed and turns a point clockwise (as seen on the y-down canvas)', async () => {
+  const { rotationAboutMatrix } = await import('../server/services/annotationGeometry.js');
+  const apply = ([a, b, c, d, e, f]: number[], x: number, y: number) => [a! * x + c! * y + e!, b! * x + d! * y + f!] as const;
+
+  const pivot = [50, 80] as const; // PDF space, y-up
+  const matrix = rotationAboutMatrix(pivot[0], pivot[1], 90);
+  const [px, py] = apply(matrix, ...pivot);
+  assert.ok(Math.abs(px - 50) < 1e-9 && Math.abs(py - 80) < 1e-9);
+
+  // A point to the right of the pivot swings *down* the page when rotated 90° clockwise.
+  const [x, y] = apply(matrix, 60, 80);
+  assert.ok(Math.abs(x - 50) < 1e-9 && Math.abs(y - 70) < 1e-9);
+});
