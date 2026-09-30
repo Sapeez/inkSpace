@@ -2,13 +2,19 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { Link, useNavigate } from 'react-router-dom';
+import FieldTooltip, { validateEmailField } from './FieldTooltip';
+import type { FieldError } from './FieldTooltip';
+import { validatePasswordPolicy } from '../lib/passwordPolicy';
+import PasswordField from './PasswordField';
+import BackToLoginButton from './BackToLoginButton';
 import { getSupabaseClient } from '../lib/supabaseClient';
 
-const MIN_PASSWORD_LENGTH = 6;
 
-function validate(email: string, password: string): string | null {
-  if (email.trim().length === 0) return 'Email is required';
-  if (password.length < MIN_PASSWORD_LENGTH) return `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;
+function validate(email: string, password: string): FieldError | null {
+  const emailError = validateEmailField(email);
+  if (emailError) return { field: 'email', message: emailError };
+  const passwordError = validatePasswordPolicy(password);
+  if (passwordError) return { field: 'password', message: passwordError };
   return null;
 }
 
@@ -32,22 +38,42 @@ export default function SignupPage({ auth = getSupabaseClient().auth }: SignupPa
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<FieldError | null>(null);
   const [checkEmailNotice, setCheckEmailNotice] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const validationError = validate(email, password);
     if (validationError) {
-      setError(validationError);
+      setError(null);
+      setFieldError(validationError);
       return;
     }
 
     setError(null);
+    setFieldError(null);
     setSubmitting(true);
     try {
-      const { data, error: signUpError } = await auth.signUp({ email, password });
+      // Supabase sends the confirmation mail itself (when "Confirm email" is on
+      // in the project's Auth settings); `emailRedirectTo` makes its link land
+      // on /verify-email in this app. That URL must be in the project's
+      // allowed Redirect URLs.
+      const emailRedirectTo = typeof window !== 'undefined' ? `${window.location.origin}/verify-email` : undefined;
+      const { data, error: signUpError } = await auth.signUp({
+        email,
+        password,
+        ...(emailRedirectTo ? { options: { emailRedirectTo } } : {}),
+      });
       if (signUpError) {
         setError(signUpError.message);
+        return;
+      }
+
+      // With email confirmation on, Supabase doesn't error for an already
+      // registered address (to avoid leaking which emails exist) — it returns
+      // a user with an empty `identities` array instead, so detect that here.
+      if (Array.isArray(data.user?.identities) && data.user.identities.length === 0) {
+        setError('An account with this email already exists. Please log in instead.');
         return;
       }
 
@@ -67,57 +93,65 @@ export default function SignupPage({ auth = getSupabaseClient().auth }: SignupPa
 
   if (checkEmailNotice) {
     return (
-      <main className="auth-page">
-        <div className="auth-card">
-          <h1>Check your email</h1>
-          <p data-testid="signup-info">We sent a verification link to {email}. You can sign in once you've confirmed it.</p>
-          <Link to="/login" data-testid="signup-login-link">
-            Back to login
-          </Link>
+      <main className="auth-page login-page">
+        <div className="login-card">
+          <h1 className="login-title">Check your email</h1>
+          <p className="login-message" data-testid="signup-info">
+            We sent a verification link to {email}. You can sign in once you've confirmed it.
+          </p>
+          <div className="login-footer login-footer-spaced">
+            <BackToLoginButton testId="signup-login-link" />
+          </div>
         </div>
       </main>
     );
   }
 
   return (
-    <main className="auth-page">
-      <div className="auth-card">
-        <h1>Create your account</h1>
-        <form className="auth-form" data-testid="signup-form" onSubmit={handleSubmit}>
-          <label className="auth-field">
-            Email
+    <main className="auth-page login-page">
+      <div className="login-card">
+        <h1 className="login-title">Sign up</h1>
+        <p className="login-subtitle">Create your account</p>
+        <form className="login-form" data-testid="signup-form" noValidate onSubmit={handleSubmit}>
+          <div className="login-field">
+            {fieldError?.field === 'email' && <FieldTooltip message={fieldError.message} testId="signup-error" />}
             <input
+              id="signup-email"
               type="email"
-              className="auth-input"
+              className="login-input"
               data-testid="signup-email-input"
+              placeholder="Email"
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                setFieldError(null);
+              }}
               disabled={submitting}
               autoComplete="email"
             />
-          </label>
-          <label className="auth-field">
-            Password
-            <input
-              type="password"
-              className="auth-input"
-              data-testid="signup-password-input"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              disabled={submitting}
-              autoComplete="new-password"
-            />
-          </label>
-          {error && (
-            <span className="auth-error" role="alert" data-testid="signup-error">
-              {error}
-            </span>
-          )}
-          <button type="submit" className="auth-submit-button" data-testid="signup-submit-button" disabled={submitting}>
-            {submitting ? 'Creating account…' : 'Sign up'}
-          </button>
+            <label htmlFor="signup-email" className="login-label">Email</label>
+          </div>
+          <PasswordField
+            id="signup-password"
+            testId="signup-password-input"
+            value={password}
+            onChange={(value) => {
+              setPassword(value);
+              setFieldError(null);
+            }}
+            errorMessage={fieldError?.field === 'password' ? fieldError.message : undefined}
+            errorTestId="signup-error"
+            disabled={submitting}
+            autoComplete="new-password"
+          />
+          <div className="login-submit-wrap">
+            {error && <FieldTooltip message={error} testId="signup-error" />}
+            <button type="submit" className="login-submit-button" data-testid="signup-submit-button" disabled={submitting}>
+              {submitting ? 'Creating account…' : 'Sign up'}
+            </button>
+          </div>
         </form>
-        <p className="auth-links">
+        <p className="login-footer">
           Already have an account? <Link to="/login" data-testid="signup-login-link">Log in</Link>
         </p>
       </div>

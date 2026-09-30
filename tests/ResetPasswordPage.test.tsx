@@ -83,8 +83,8 @@ test('shows an inline error and never calls updateUser when the passwords do not
   const updateUser = mock.fn(async () => ({ data: {}, error: null }));
   renderResetPasswordPage({ updateUser });
 
-  fireEvent.change(screen.getByTestId(TEST_IDS.RESET_PASSWORD_PASSWORD_INPUT), { target: { value: 'password123' } });
-  fireEvent.change(screen.getByTestId(TEST_IDS.RESET_PASSWORD_CONFIRM_INPUT), { target: { value: 'password456' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.RESET_PASSWORD_PASSWORD_INPUT), { target: { value: 'Password123!' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.RESET_PASSWORD_CONFIRM_INPUT), { target: { value: 'Password456!' } });
   fireEvent.submit(screen.getByTestId(TEST_IDS.RESET_PASSWORD_FORM));
 
   assert.equal(screen.getByTestId(TEST_IDS.RESET_PASSWORD_ERROR).textContent, 'Passwords do not match');
@@ -95,23 +95,23 @@ test('PR3: a successful update calls updateUser with the new password and shows 
   const updateUser = mock.fn(async (_attrs: { password: string }) => ({ data: {}, error: null }));
   renderResetPasswordPage({ updateUser });
 
-  fireEvent.change(screen.getByTestId(TEST_IDS.RESET_PASSWORD_PASSWORD_INPUT), { target: { value: 'newpassword123' } });
-  fireEvent.change(screen.getByTestId(TEST_IDS.RESET_PASSWORD_CONFIRM_INPUT), { target: { value: 'newpassword123' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.RESET_PASSWORD_PASSWORD_INPUT), { target: { value: 'NewPassword123!' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.RESET_PASSWORD_CONFIRM_INPUT), { target: { value: 'NewPassword123!' } });
   fireEvent.submit(screen.getByTestId(TEST_IDS.RESET_PASSWORD_FORM));
 
   await waitFor(() => {
     assert.ok(screen.getByTestId(TEST_IDS.RESET_PASSWORD_SUCCESS));
   });
   assert.equal(updateUser.mock.callCount(), 1);
-  assert.deepEqual(updateUser.mock.calls[0]?.arguments[0], { password: 'newpassword123' });
+  assert.deepEqual(updateUser.mock.calls[0]?.arguments[0], { password: 'NewPassword123!' });
 });
 
 test('design req 3.3 (no silent failures): an updateUser error is surfaced inline, not swallowed', async () => {
   const updateUser = mock.fn(async () => ({ data: {}, error: { message: 'Auth session missing' } }));
   renderResetPasswordPage({ updateUser });
 
-  fireEvent.change(screen.getByTestId(TEST_IDS.RESET_PASSWORD_PASSWORD_INPUT), { target: { value: 'newpassword123' } });
-  fireEvent.change(screen.getByTestId(TEST_IDS.RESET_PASSWORD_CONFIRM_INPUT), { target: { value: 'newpassword123' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.RESET_PASSWORD_PASSWORD_INPUT), { target: { value: 'NewPassword123!' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.RESET_PASSWORD_CONFIRM_INPUT), { target: { value: 'NewPassword123!' } });
   fireEvent.submit(screen.getByTestId(TEST_IDS.RESET_PASSWORD_FORM));
 
   await waitFor(() => {

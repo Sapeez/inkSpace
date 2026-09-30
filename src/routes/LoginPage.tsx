@@ -2,12 +2,16 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { Link, useNavigate } from 'react-router-dom';
+import FieldTooltip, { validateEmailField } from './FieldTooltip';
+import type { FieldError } from './FieldTooltip';
+import PasswordField from './PasswordField';
 import { getSupabaseClient } from '../lib/supabaseClient';
 import { checkLoginRateLimit } from '../lib/authApi';
 
-function validate(email: string, password: string): string | null {
-  if (email.trim().length === 0) return 'Email is required';
-  if (password.length === 0) return 'Password is required';
+function validate(email: string, password: string): FieldError | null {
+  const emailError = validateEmailField(email);
+  if (emailError) return { field: 'email', message: emailError };
+  if (password.length === 0) return { field: 'password', message: 'Password is required' };
   return null;
 }
 
@@ -31,16 +35,19 @@ export default function LoginPage({ auth = getSupabaseClient().auth }: LoginPage
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<FieldError | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const validationError = validate(email, password);
     if (validationError) {
-      setError(validationError);
+      setError(null);
+      setFieldError(validationError);
       return;
     }
 
     setError(null);
+    setFieldError(null);
     setSubmitting(true);
     try {
       // LG5: gate before ever calling Supabase — see `server/routes/auth.ts`
@@ -73,8 +80,9 @@ export default function LoginPage({ auth = getSupabaseClient().auth }: LoginPage
       <div className="login-card">
         <h1 className="login-title">Welcome</h1>
         <p className="login-subtitle">Sign in to your account</p>
-        <form className="login-form" data-testid="login-form" onSubmit={handleSubmit}>
+        <form className="login-form" data-testid="login-form" noValidate onSubmit={handleSubmit}>
           <div className="login-field">
+            {fieldError?.field === 'email' && <FieldTooltip message={fieldError.message} testId="login-error" />}
             <input
               id="login-email"
               type="email"
@@ -82,37 +90,37 @@ export default function LoginPage({ auth = getSupabaseClient().auth }: LoginPage
               data-testid="login-email-input"
               placeholder="Email"
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                setFieldError(null);
+              }}
               disabled={submitting}
               autoComplete="email"
             />
             <label htmlFor="login-email" className="login-label">Email</label>
           </div>
-          <div className="login-field">
-            <input
-              id="login-password"
-              type="password"
-              className="login-input"
-              data-testid="login-password-input"
-              placeholder="Password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              disabled={submitting}
-              autoComplete="current-password"
-            />
-            <label htmlFor="login-password" className="login-label">Password</label>
-          </div>
-          {error && (
-            <span className="login-error" role="alert" data-testid="login-error">
-              {error}
-            </span>
-          )}
+          <PasswordField
+            id="login-password"
+            testId="login-password-input"
+            value={password}
+            onChange={(value) => {
+              setPassword(value);
+              setFieldError(null);
+            }}
+            errorMessage={fieldError?.field === 'password' ? fieldError.message : undefined}
+            errorTestId="login-error"
+            disabled={submitting}
+            autoComplete="current-password"
+          />
           <Link to="/forgot-password" className="login-forgot" data-testid="login-forgot-password-link">
             Forgot your password?
           </Link>
-          <button type="submit" className="login-submit-button" data-testid="login-submit-button" disabled={submitting}>
-            {submitting ? 'Logging in…' : 'Log in'}
-          </button>
+          <div className="login-submit-wrap">
+            {error && <FieldTooltip message={error} testId="login-error" />}
+            <button type="submit" className="login-submit-button" data-testid="login-submit-button" disabled={submitting}>
+              {submitting ? 'Logging in…' : 'Log in'}
+            </button>
+          </div>
         </form>
         <p className="login-footer">
           Don't have an account? <Link to="/signup" data-testid="login-signup-link">Sign up</Link>

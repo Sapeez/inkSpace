@@ -6,13 +6,13 @@ import { getSupabaseClient } from '../lib/supabaseClient';
 import { useSession } from '../lib/session';
 import ConfirmModal from '../modals/ConfirmModal.jsx';
 import { deleteAccount as deleteAccountApi } from '../lib/accountApi';
+import { validatePasswordPolicy } from '../lib/passwordPolicy';
 
 // Not a real value any caller would pass — lets `sessionOverride === NOT_SET`
 // distinguish "test didn't pass this prop, use the real hook" from "test
 // explicitly wants the session treated as null/signed-out".
 const NOT_SET = Symbol('not-set');
 
-const MIN_PASSWORD_LENGTH = 6;
 
 // design req 3.3 / typescript-standard.md §2.4: exact confirmation copy as a
 // typed constant, exported so `SettingsPage.test.tsx` asserts against this
@@ -156,8 +156,9 @@ export default function SettingsPage({
   async function handlePasswordSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPasswordSuccess(false);
-    if (newPassword.length < MIN_PASSWORD_LENGTH) {
-      setPasswordError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+    const policyError = validatePasswordPolicy(newPassword);
+    if (policyError) {
+      setPasswordError(policyError);
       return;
     }
     if (newPassword !== confirmPassword) {

@@ -44,14 +44,18 @@ test('SU1/SU3: a successful signup with an immediate session lands on the worksp
   renderSignupPage({ signUp });
 
   fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_EMAIL_INPUT), { target: { value: 'new@example.com' } });
-  fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_PASSWORD_INPUT), { target: { value: 'password123' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_PASSWORD_INPUT), { target: { value: 'Password123!' } });
   fireEvent.submit(screen.getByTestId(TEST_IDS.SIGNUP_FORM));
 
   await waitFor(() => {
     assert.ok(screen.getByTestId('workspace-landed'));
   });
   assert.equal(signUp.mock.callCount(), 1);
-  assert.deepEqual(signUp.mock.calls[0]?.arguments[0], { email: 'new@example.com', password: 'password123' });
+  const args = signUp.mock.calls[0]?.arguments[0] as { email: string; password: string; options?: { emailRedirectTo?: string } };
+  assert.equal(args.email, 'new@example.com');
+  assert.equal(args.password, 'Password123!');
+  // The confirmation mail's link must land on /verify-email in this app.
+  assert.match(args.options?.emailRedirectTo ?? '', /\/verify-email$/);
 });
 
 // EV1: when the project requires email confirmation, `signUp` succeeds but
@@ -62,7 +66,7 @@ test('EV1: a successful signup with no session (confirmation required) shows the
   renderSignupPage({ signUp });
 
   fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_EMAIL_INPUT), { target: { value: 'new@example.com' } });
-  fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_PASSWORD_INPUT), { target: { value: 'password123' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_PASSWORD_INPUT), { target: { value: 'Password123!' } });
   fireEvent.submit(screen.getByTestId(TEST_IDS.SIGNUP_FORM));
 
   await waitFor(() => {
@@ -79,10 +83,54 @@ test('design req 3.3 (no silent failures): a signUp error is surfaced inline, no
   renderSignupPage({ signUp });
 
   fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_EMAIL_INPUT), { target: { value: 'taken@example.com' } });
-  fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_PASSWORD_INPUT), { target: { value: 'password123' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_PASSWORD_INPUT), { target: { value: 'Password123!' } });
   fireEvent.submit(screen.getByTestId(TEST_IDS.SIGNUP_FORM));
 
   await waitFor(() => {
     assert.equal(screen.getByTestId(TEST_IDS.SIGNUP_ERROR).textContent, 'User already registered');
   });
+});
+
+test('an already-registered email (user returned with empty identities) shows an inline error, not the check-your-email card', async () => {
+  const signUp = mock.fn(async () => ({
+    data: { user: { id: 'user-1', identities: [] }, session: null },
+    error: null,
+  }));
+  renderSignupPage({ signUp });
+
+  fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_EMAIL_INPUT), { target: { value: 'taken@example.com' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_PASSWORD_INPUT), { target: { value: 'Password123!' } });
+  fireEvent.submit(screen.getByTestId(TEST_IDS.SIGNUP_FORM));
+
+  await waitFor(() => {
+    assert.ok(screen.getByTestId(TEST_IDS.SIGNUP_ERROR));
+  });
+  assert.equal(screen.queryByTestId(TEST_IDS.SIGNUP_INFO), null);
+});
+
+test('the eye button toggles password visibility on the signup form', () => {
+  const signUp = mock.fn(async () => ({ data: { user: null, session: null }, error: null }));
+  renderSignupPage({ signUp });
+
+  const input = screen.getByTestId(TEST_IDS.SIGNUP_PASSWORD_INPUT) as HTMLInputElement;
+  assert.equal(screen.queryByTestId(`${TEST_IDS.SIGNUP_PASSWORD_INPUT}-toggle`), null);
+  fireEvent.change(input, { target: { value: 'secret' } });
+  const toggle = screen.getByTestId(`${TEST_IDS.SIGNUP_PASSWORD_INPUT}-toggle`);
+  assert.equal(input.type, 'password');
+  fireEvent.click(toggle);
+  assert.equal(input.type, 'text');
+  fireEvent.click(toggle);
+  assert.equal(input.type, 'password');
+});
+
+test('signup rejects a password missing required character classes without calling signUp', () => {
+  const signUp = mock.fn(async () => ({ data: { user: null, session: null }, error: null }));
+  renderSignupPage({ signUp });
+
+  fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_EMAIL_INPUT), { target: { value: 'new@example.com' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.SIGNUP_PASSWORD_INPUT), { target: { value: 'password123' } });
+  fireEvent.submit(screen.getByTestId(TEST_IDS.SIGNUP_FORM));
+
+  assert.match(screen.getByTestId(TEST_IDS.SIGNUP_ERROR).textContent ?? '', /uppercase/);
+  assert.equal(signUp.mock.callCount(), 0);
 });

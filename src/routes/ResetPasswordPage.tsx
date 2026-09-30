@@ -3,9 +3,9 @@ import type { FormEvent } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { Link } from 'react-router-dom';
 import { getSupabaseClient } from '../lib/supabaseClient';
+import { validatePasswordPolicy } from '../lib/passwordPolicy';
 import { parseAuthLinkError } from '../lib/authLinkError';
 
-const MIN_PASSWORD_LENGTH = 6;
 
 interface ResetPasswordPageProps {
   // Testability seam only — every real call site (`App.jsx`) renders
@@ -31,8 +31,9 @@ export default function ResetPasswordPage({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+    const policyError = validatePasswordPolicy(password);
+    if (policyError) {
+      setError(policyError);
       return;
     }
     if (password !== confirmPassword) {

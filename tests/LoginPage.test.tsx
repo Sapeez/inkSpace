@@ -116,3 +116,24 @@ test("design req 3.3 (no silent failures): a broken rate-limit check surfaces in
   });
   assert.equal(signInWithPassword.mock.callCount(), 0);
 });
+
+test('the eye button toggles password visibility on the login form', async () => {
+  const { MemoryRouter } = await import('react-router-dom');
+  const { default: LoginPage } = await import('../src/routes/LoginPage');
+  const signInWithPassword = mock.fn(async () => ({ data: {}, error: null }));
+  render(
+    <MemoryRouter>
+      <LoginPage auth={{ signInWithPassword } as never} />
+    </MemoryRouter>,
+  );
+
+  const input = screen.getByTestId('login-password-input') as HTMLInputElement;
+  assert.equal(screen.queryByTestId('login-password-input-toggle'), null);
+  fireEvent.change(input, { target: { value: 'secret' } });
+  const toggle = screen.getByTestId('login-password-input-toggle');
+  assert.equal(input.type, 'password');
+  fireEvent.click(toggle);
+  assert.equal(input.type, 'text');
+  fireEvent.click(toggle);
+  assert.equal(input.type, 'password');
+});

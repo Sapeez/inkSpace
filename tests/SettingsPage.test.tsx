@@ -113,7 +113,7 @@ test('US2: saving the email form calls updateUser with the new email and shows t
 test('US3: mismatched password confirmation is rejected before calling updateUser', async () => {
   const { auth } = renderSettingsPage({});
 
-  fireEvent.change(screen.getByTestId(TEST_IDS.SETTINGS_NEW_PASSWORD_INPUT), { target: { value: 'newpassword1' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.SETTINGS_NEW_PASSWORD_INPUT), { target: { value: 'NewPassword1!' } });
   fireEvent.change(screen.getByTestId(TEST_IDS.SETTINGS_CONFIRM_PASSWORD_INPUT), { target: { value: 'different1' } });
   fireEvent.click(screen.getByTestId(TEST_IDS.SETTINGS_PASSWORD_SAVE_BUTTON));
 
@@ -126,14 +126,14 @@ test('US3: mismatched password confirmation is rejected before calling updateUse
 test('US3: a matching password confirmation calls updateUser with the new password', async () => {
   const { auth } = renderSettingsPage({});
 
-  fireEvent.change(screen.getByTestId(TEST_IDS.SETTINGS_NEW_PASSWORD_INPUT), { target: { value: 'newpassword1' } });
-  fireEvent.change(screen.getByTestId(TEST_IDS.SETTINGS_CONFIRM_PASSWORD_INPUT), { target: { value: 'newpassword1' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.SETTINGS_NEW_PASSWORD_INPUT), { target: { value: 'NewPassword1!' } });
+  fireEvent.change(screen.getByTestId(TEST_IDS.SETTINGS_CONFIRM_PASSWORD_INPUT), { target: { value: 'NewPassword1!' } });
   fireEvent.click(screen.getByTestId(TEST_IDS.SETTINGS_PASSWORD_SAVE_BUTTON));
 
   await waitFor(() => {
     assert.ok(screen.getByTestId(TEST_IDS.SETTINGS_PASSWORD_SUCCESS));
   });
-  assert.deepEqual(auth.updateUser.mock.calls[0]?.arguments[0], { password: 'newpassword1' });
+  assert.deepEqual(auth.updateUser.mock.calls[0]?.arguments[0], { password: 'NewPassword1!' });
 });
 
 test('US4: linked sign-in methods are listed from getUserIdentities', async () => {
