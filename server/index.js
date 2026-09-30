@@ -1,4 +1,7 @@
 import 'dotenv/config';
+import path from 'node:path';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
 import { requireAuth } from './middleware/requireAuth.js';
@@ -44,6 +47,18 @@ app.use('/api/burn-in', burnInRouter);
 app.use('/api/account', accountRouter);
 app.use('/api/workspace', workspaceRouter);
 app.use('/api/folders', foldersRouter);
+
+// Production: serve the Vite build (`npm run build` -> dist/) from this same
+// process. Dev doesn't hit this — Vite serves the client and proxies /api here.
+// Unknown /api paths are excluded from the SPA fallback so they still 404
+// instead of returning index.html.
+const distDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist');
+if (existsSync(path.join(distDir, 'index.html'))) {
+  app.use(express.static(distDir));
+  app.get(/^\/(?!api(\/|$)).*/, (_req, res) => {
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
+}
 
 app.use((err, _req, res, _next) => {
   console.error(err);
