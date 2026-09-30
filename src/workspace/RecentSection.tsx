@@ -26,7 +26,7 @@ export default function RecentSection({ files }: RecentSectionProps) {
       <ul className="recent-section-items">
         {recent.map((file) => (
           <li key={file.id} className="recent-item" data-testid="recent-item">
-            <Link to={`/view/${file.id}`} className="recent-item-link">
+            <Link to={`/edit/${file.id}`} className="recent-item-link">
               <FileThumbnail attachmentId={file.id} />
               <span className="recent-item-name">{file.filename}</span>
             </Link>

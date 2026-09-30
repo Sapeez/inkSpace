@@ -4,16 +4,18 @@ import { randomUUID } from 'node:crypto';
 import 'dotenv/config';
 import { canRead, canWrite, isOwner } from '../server/middleware/permissions.js';
 import { supabase } from '../server/lib/supabaseClient.js';
+import { createTestSession, HAS_AUTH_TEST_CREDS } from './helpers/testAuthUser.js';
 
-const OWNER_ID = process.env.TEST_OWNER_USER_ID;
 const BUCKET = process.env.STORAGE_BUCKET;
-const CAN_RUN = Boolean(OWNER_ID && BUCKET && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+const CAN_RUN = Boolean(BUCKET && HAS_AUTH_TEST_CREDS);
 
 test(
   'permissions middleware enforces owner-only access against a real attachment',
-  { skip: !CAN_RUN && 'requires TEST_OWNER_USER_ID, STORAGE_BUCKET, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY' },
+  { skip: !CAN_RUN && 'requires STORAGE_BUCKET, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, VITE_SUPABASE_ANON_KEY' },
   async (t) => {
-    const ownerId = OWNER_ID as string;
+    // A scratch user, not a fixed env-configured one: attachments.owner_id is a FK to auth.users.
+    const owner = await createTestSession();
+    const ownerId = owner.userId;
     const bucket = BUCKET as string;
     const storagePath = `scratch-tests/permissions-${randomUUID()}.pdf`;
 
@@ -68,6 +70,7 @@ test(
     } finally {
       await supabase.from('attachments').delete().eq('id', attachmentId);
       await supabase.storage.from(bucket).remove([storagePath]);
+      await owner.cleanup();
     }
   },
 );

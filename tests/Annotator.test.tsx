@@ -105,13 +105,11 @@ const CANVAS_TOOL_TEST_IDS = [
   TEST_IDS.TOOL_PEN,
   TEST_IDS.TOOL_FREEFORM_HIGHLIGHTER,
   TEST_IDS.TOOL_TEXT,
-  TEST_IDS.TOOL_TEXT_HIGHLIGHTER,
   TEST_IDS.TOOL_ELLIPSE,
   TEST_IDS.TOOL_RECTANGLE,
   TEST_IDS.TOOL_LINE,
   TEST_IDS.TOOL_ARROW,
   TEST_IDS.TOOL_CLOUD,
-  TEST_IDS.TOOL_POLYGON,
 ];
 
 test('every canvas-gesture tool button can be activated and shows aria-pressed on only that button', () => {
@@ -151,7 +149,8 @@ test('changing the color picker affects annotations placed after the change, not
   assert.equal(firstRect.stroke, DEFAULT_ANNOTATION_STYLE.color);
   canvas.discardActiveObject();
 
-  fireEvent.change(screen.getByTestId(TEST_IDS.STYLE_COLOR_PICKER), { target: { value: '#2563eb' } });
+  fireEvent.click(screen.getByTestId(TEST_IDS.STYLE_COLOR_PICKER));
+  fireEvent.change(screen.getByTestId(TEST_IDS.STYLE_COLOR_HEX), { target: { value: '#2563eb' } });
 
   canvas.fire('mouse:down', { e: { clientX: 300, clientY: 300 }, target: null });
   canvas.fire('mouse:move', { e: { clientX: 400, clientY: 400 } });

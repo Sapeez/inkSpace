@@ -32,10 +32,77 @@ html, body {
 }
 
 .viewer-layout {
+  --accent: rgb(130 109 180);
+  --accent-hover: rgb(110 90 160);
+  --accent-soft: rgb(130 109 180 / 15%);
   display: flex;
   flex-direction: column;
   height: 100vh;
+  /* White wash over the image fades it without touching the cards on top. */
+  background:
+    linear-gradient(rgb(255 255 255 / 35%), rgb(255 255 255 / 35%)),
+    url('/workspace-background.png') center / cover no-repeat fixed;
+}
+
+.toolbar-tool-slot {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+/* Tooltip-style popover under the active tool; stays open until another tool
+   is selected. */
+.toolbar-style-popover {
+  position: absolute;
+  top: calc(100% + 0.625rem);
+  left: 50%;
+  z-index: 20;
+  transform: translateX(-50%);
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-float);
+}
+
+.toolbar-style-popover::before {
+  content: '';
+  position: absolute;
+  top: -0.3125rem;
+  left: 50%;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-top: 1px solid var(--border-subtle);
+  border-left: 1px solid var(--border-subtle);
+  background: var(--card-bg);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.toolbar-style-popover .style-controls {
+  margin-left: 0;
+  padding: 0;
+  border-right: none;
+}
+
+.toolbar-back-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.toolbar-back-button:hover,
+.toolbar-back-button:focus-visible {
   background: var(--page-bg);
+  color: var(--text-primary);
 }
 
 .toolbar {
@@ -43,17 +110,22 @@ html, body {
   align-items: center;
   gap: 1rem;
   margin: 1rem 1rem 0;
-  padding: 0.75rem 1.25rem;
+  padding: 0.625rem 1.5rem;
   border-radius: var(--radius-lg);
-  background: var(--card-bg);
+  background: #ffffffb0;
   box-shadow: var(--shadow-float);
 }
 
 .toolbar-attachment {
   color: var(--text-primary);
-  font-size: 0.875rem;
+  font-size: 1rem;
   font-weight: 600;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 0;
+  text-align: left;
 }
 
 .toolbar-tools {
@@ -62,22 +134,28 @@ html, body {
   gap: 0.25rem;
   padding-right: 0.75rem;
   border-right: 1px solid var(--border-subtle);
-  overflow-x: auto;
+  flex-shrink: 0;
 }
 
 .toolbar-tool-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 2.75rem;
+  height: 2.75rem;
   flex-shrink: 0;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: none;
   color: var(--text-secondary);
   cursor: pointer;
+  position: relative;
   transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.toolbar-tool-button:hover .file-button-tooltip {
+  opacity: 1;
+  transform: translateY(-2rem);
 }
 
 .toolbar-tool-button:hover,
@@ -147,6 +225,26 @@ html, body {
   white-space: nowrap;
 }
 
+.style-controls-font-select {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  padding: 0.25rem 0.625rem;
+  background: #fff;
+  color: var(--text-primary);
+  cursor: pointer;
+  appearance: none;
+  /* Fixed width (not content-sized) so picking a font never resizes the control;
+     sized to fit the longest option, "Times New Roman". */
+  width: 10rem;
+  flex-shrink: 0;
+}
+
+.style-controls-font-select:focus,
+.style-controls-font-select:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 .style-controls-width-input {
   width: 3.5rem;
   border: 1px solid var(--border-subtle);
@@ -159,12 +257,11 @@ html, body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-left: auto;
   flex-shrink: 0;
 }
 
 .toolbar-action-button {
-  padding: 0.5rem 1.125rem;
+  padding: 0.625rem 1.375rem;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-pill);
   background: var(--card-bg);
@@ -178,6 +275,24 @@ html, body {
 .toolbar-action-button:hover:not(:disabled),
 .toolbar-action-button:focus-visible {
   background: var(--page-bg);
+}
+
+/* Icon-only actions (Download, Save): identical fixed size; hover recolors the
+   icon itself, never the button background. */
+.toolbar-action-button--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+}
+
+.toolbar-action-button--icon:hover:not(:disabled),
+.toolbar-action-button--icon:focus-visible {
+  background: var(--card-bg);
+  color: var(--accent);
 }
 
 .toolbar-action-button:disabled {
@@ -194,7 +309,8 @@ html, body {
 
 .toolbar-action-button[data-testid='download-button']:hover:not(:disabled),
 .toolbar-action-button[data-testid='download-button']:focus-visible {
-  background: var(--accent-soft);
+  background: var(--card-bg);
+  color: var(--accent-hover);
 }
 
 .toolbar-action-error {
@@ -216,7 +332,7 @@ html, body {
   flex-shrink: 0;
   overflow-y: auto;
   border-radius: var(--radius-lg);
-  background: var(--card-bg);
+  background: #ffffffb0;
   padding: 1rem;
 }
 
@@ -249,6 +365,11 @@ html, body {
   border-color: var(--accent);
 }
 
+.thumbnail-item--current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .thumbnail-canvas {
   display: block;
   width: 100%;
@@ -262,7 +383,7 @@ html, body {
   flex: 1;
   min-height: 0;
   border-radius: var(--radius-lg);
-  background: var(--card-bg);
+  background: #ffffffb0;
   padding: 0.5rem;
   overflow: hidden;
 }
@@ -349,28 +470,34 @@ html, body {
    `pointer-events` on both canvases directly (`upperCanvasEl` per active
    tool, `lowerCanvasEl` fixed to `none` — it never receives input). */
 
-.zoom-controls {
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
+.pdf-viewer-column {
   display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  gap: 0.375rem;
+}
+
+.zoom-controls {
+  display: flex;
+  align-self: flex-end;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.375rem 0.75rem;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
   border-radius: var(--radius-pill);
-  background: var(--card-bg);
+  background: var(--page-bg);
   color: var(--text-primary);
-  box-shadow: var(--shadow-float);
-  font-size: 0.875rem;
+  font-size: 0.75rem;
 }
 
 .zoom-controls-button {
   border: none;
   background: none;
   color: inherit;
-  font-size: 1rem;
+  font-size: 0.875rem;
   line-height: 1;
-  padding: 0.125rem 0.5rem;
+  padding: 0.125rem 0.375rem;
   border-radius: var(--radius-md);
   cursor: pointer;
 }
@@ -576,40 +703,23 @@ html, body {
 }
 
 .save-modal {
-  min-width: 380px;
+  width: 340px;
 }
 
-.save-modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+.save-modal-confirm-button.card-modal-button--primary {
+  background: rgb(130 109 220 / 80%);
+  color: #fff;
 }
 
-.save-modal-header h2 {
-  margin: 0;
-  font-size: 1.125rem;
-}
-
-.save-modal-close-button {
-  border: none;
-  background: none;
-  font-size: 1.25rem;
-  line-height: 1;
-  color: #6b7280;
-  cursor: pointer;
-}
-
-.save-modal-close-button:disabled {
-  opacity: 0.4;
-  cursor: default;
+.save-modal-confirm-button.card-modal-button--primary:hover:not(:disabled) {
+  background: rgb(110 88 205 / 90%);
 }
 
 .save-modal-field {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  margin-top: 1rem;
+  margin-top: 0.75rem;
   font-size: 0.875rem;
   color: #374151;
 }
@@ -659,12 +769,6 @@ html, body {
   background: #fef2f2;
   border: 1px solid #fecaca;
   color: #b91c1c;
-}
-
-.save-modal-cancel-button:disabled,
-.save-modal-confirm-button:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 .share-modal {
@@ -1416,8 +1520,7 @@ html, body {
   color: var(--text-primary);
 }
 
-.viewer-preview-back,
-.viewer-preview-edit {
+.viewer-preview-back {
   color: var(--accent);
   font-weight: 600;
   text-decoration: none;
@@ -1863,4 +1966,141 @@ html, body {
   .account-menu-list {
     animation: none;
   }
+}
+
+.color-picker {
+  position: relative;
+}
+
+.color-picker-swatch {
+  display: block;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 2px solid var(--card-bg);
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 1px var(--border-subtle);
+  cursor: pointer;
+}
+
+.color-picker-panel {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 13rem;
+  padding: 0.625rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-float);
+}
+
+.color-picker-area {
+  position: relative;
+  height: 7.5rem;
+  border-radius: var(--radius-md);
+  cursor: crosshair;
+  touch-action: none;
+  overflow: hidden;
+}
+
+.color-picker-area-white,
+.color-picker-area-black {
+  position: absolute;
+  inset: 0;
+}
+
+.color-picker-area-white {
+  background: linear-gradient(to right, #fff, rgb(255 255 255 / 0%));
+}
+
+.color-picker-area-black {
+  background: linear-gradient(to top, #000, rgb(0 0 0 / 0%));
+}
+
+.color-picker-area-handle {
+  position: absolute;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 40%);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.color-picker-hue {
+  width: 100%;
+  height: 0.625rem;
+  margin: 0;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+  appearance: none;
+  cursor: pointer;
+}
+
+.color-picker-hue::-webkit-slider-thumb {
+  width: 0.875rem;
+  height: 0.875rem;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 40%);
+  appearance: none;
+}
+
+.color-picker-hue::-moz-range-thumb {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 40%);
+}
+
+.color-picker-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.color-picker-row {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.color-picker-field {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.color-picker-input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.1875rem 0.25rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  color: var(--text-primary);
+  font-size: 0.6875rem;
+  text-align: center;
+}
+
+.color-picker-field-label {
+  color: var(--text-secondary);
+  font-size: 0.625rem;
+}
+
+.style-controls-fill-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
 }

@@ -115,6 +115,7 @@ export default function SignatureUploader({ onPlace }: SignatureUploaderProps) {
         onClick={handleButtonClick}
       >
         <SignatureIcon />
+        <span className="file-button-tooltip">Signature</span>
       </button>
       <input
         ref={inputRef}

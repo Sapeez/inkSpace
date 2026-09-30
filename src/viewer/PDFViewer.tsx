@@ -126,11 +126,20 @@ export default function PDFViewer({
 
       const canvas = document.createElement('canvas');
       canvas.className = 'pdf-viewer-canvas';
-      canvas.width = entry.viewport.width;
-      canvas.height = entry.viewport.height;
+      // Back the canvas with device pixels (not CSS pixels) and size it in CSS
+      // pixels, otherwise HiDPI screens upscale the bitmap and it looks blurry.
+      const pixelRatio = Math.min(window.devicePixelRatio || 1, 3);
+      canvas.width = Math.floor(entry.viewport.width * pixelRatio);
+      canvas.height = Math.floor(entry.viewport.height * pixelRatio);
+      canvas.style.width = `${entry.viewport.width}px`;
+      canvas.style.height = `${entry.viewport.height}px`;
       entry.pageWrapper.appendChild(canvas);
 
-      const renderTask = entry.page.render({ canvas, viewport: entry.viewport });
+      const renderTask = entry.page.render({
+        canvas,
+        viewport: entry.viewport,
+        ...(pixelRatio !== 1 ? { transform: [pixelRatio, 0, 0, pixelRatio, 0, 0] } : {}),
+      });
       renderTasks.push(renderTask);
       await renderTask.promise;
       if (cancelled) return;
@@ -321,25 +330,7 @@ export default function PDFViewer({
   const pannable = scale > 1;
 
   return (
-    <div
-      className={`pdf-viewer${pannable ? ' pdf-viewer--pannable' : ''}${isPanning ? ' pdf-viewer--panning' : ''}`}
-      data-testid="pdf-viewer"
-      ref={viewerRef}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={endPan}
-      onPointerCancel={endPan}
-    >
-      {loading && (
-        <div className="pdf-viewer-loading" data-testid="pdf-loading-indicator" role="status" aria-live="polite">
-          Loading document…
-        </div>
-      )}
-      {error && (
-        <div className="pdf-viewer-error" role="alert">
-          {error}
-        </div>
-      )}
+    <div className="pdf-viewer-column">
       <div className="zoom-controls" data-testid="zoom-controls" onPointerDown={(event) => event.stopPropagation()}>
         <button
           type="button"
@@ -372,7 +363,27 @@ export default function PDFViewer({
           +
         </button>
       </div>
+    <div
+      className={`pdf-viewer${pannable ? ' pdf-viewer--pannable' : ''}${isPanning ? ' pdf-viewer--panning' : ''}`}
+      data-testid="pdf-viewer"
+      ref={viewerRef}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={endPan}
+      onPointerCancel={endPan}
+    >
+      {loading && (
+        <div className="pdf-viewer-loading" data-testid="pdf-loading-indicator" role="status" aria-live="polite">
+          Loading document…
+        </div>
+      )}
+      {error && (
+        <div className="pdf-viewer-error" role="alert">
+          {error}
+        </div>
+      )}
       <div className="pdf-viewer-pages" ref={pagesContainerRef} />
+    </div>
     </div>
   );
 }

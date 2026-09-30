@@ -10,7 +10,7 @@ import SaveModal from '../modals/SaveModal.tsx';
 import { usePdfDocument } from './usePdfDocument.ts';
 import { DEFAULT_ANNOTATION_STYLE } from '../toolbar/StyleControls.tsx';
 import { burnInAttachment } from '../lib/index.js';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 
 // D2/D3: decodes the burn-in endpoint's base64 PDF into a real download —
 // same base64-JSON contract SaveModal.tsx's save flow reuses (see
@@ -38,7 +38,13 @@ export default function ViewerPage({ readOnly = false }) {
   const { pdfDoc, loading, error, attachment, accessDenied } = usePdfDocument(attachmentId);
   const annotationCanvasRef = useRef(null);
   const [activeTool, setActiveTool] = useState('pen');
-  const [style, setStyle] = useState(DEFAULT_ANNOTATION_STYLE);
+  // Each tool keeps its own color/stroke width; switching tools never
+  // overrides another tool's configuration.
+  const [stylesByTool, setStylesByTool] = useState({});
+  const style = stylesByTool[activeTool] ?? DEFAULT_ANNOTATION_STYLE;
+  const setStyle = (next) => setStylesByTool((prev) => ({ ...prev, [activeTool]: next }));
+  const navigate = useNavigate();
+  const [backConfirmOpen, setBackConfirmOpen] = useState(false);
   // A6: owned here, not inside AnnotationCanvas.jsx, since the modal itself
   // (exact-text confirmation) is UI, and AnnotationCanvas.jsx renders
   // nothing of its own (see its trailing comment) — it only requests that
@@ -84,9 +90,6 @@ export default function ViewerPage({ readOnly = false }) {
           <span className="viewer-preview-name" data-testid="viewer-preview-name">
             {attachment?.filename ?? ''}
           </span>
-          <Link to={`/edit/${attachmentId}`} className="viewer-preview-edit" data-testid="viewer-preview-edit">
-            Edit
-          </Link>
         </header>
         <div className="viewer-main">
           <ThumbnailPanel pdfDoc={pdfDoc} />
@@ -102,7 +105,8 @@ export default function ViewerPage({ readOnly = false }) {
   return (
     <div className="viewer-layout">
       <Toolbar
-        attachmentId={attachmentId}
+        attachmentName={attachment?.filename ?? ''}
+        onBack={() => setBackConfirmOpen(true)}
         activeTool={activeTool}
         onToolChange={setActiveTool}
         style={style}
@@ -137,11 +141,14 @@ export default function ViewerPage({ readOnly = false }) {
         activeTool={activeTool}
         style={style}
         onRequestDelete={() => setDeleteConfirmOpen(true)}
+        onObjectCreated={() => setActiveTool('hand')}
       />
       <ConfirmModal
         open={deleteConfirmOpen}
         title="Delete annotation?"
         message="Are you sure you want to delete this annotation?"
+        variant="card"
+        confirmLabel="Delete"
         onConfirm={() => {
           annotationCanvasRef.current?.deleteActiveObject();
           setDeleteConfirmOpen(false);
@@ -152,6 +159,18 @@ export default function ViewerPage({ readOnly = false }) {
         messageTestId="delete-confirm-message"
         confirmTestId="delete-confirm-button"
         cancelTestId="delete-cancel-button"
+      />
+      <ConfirmModal
+        open={backConfirmOpen}
+        variant="card"
+        title="Go back?"
+        message="Are you sure you want to go back? All unsaved changes will be lost."
+        confirmLabel="Go back"
+        onConfirm={() => navigate('/workspace')}
+        onCancel={() => setBackConfirmOpen(false)}
+        testId="back-confirm-modal"
+        confirmTestId="back-confirm-button"
+        cancelTestId="back-cancel-button"
       />
       <SaveModal
         open={saveModalOpen}

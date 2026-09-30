@@ -130,63 +130,53 @@ export default function SaveModal({ open, attachmentId, originalFilename, onClos
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="save-modal-title" data-testid="save-modal">
-      <div className="modal save-modal">
-        <div className="save-modal-header">
-          <h2 id="save-modal-title">Save attachment</h2>
-          <button
-            type="button"
-            className="save-modal-close-button"
-            onClick={handleCloseOrCancel}
-            disabled={saving}
-            aria-label="Close"
-            data-testid="save-modal-close-button"
-          >
-            ×
-          </button>
+      <div className="card-modal save-modal">
+        <div className="card-modal-content">
+          <h2 id="save-modal-title" className="card-modal-heading">Save attachment</h2>
+
+          <label className="save-modal-field">
+            <span className="save-modal-label">Filename</span>
+            <input
+              type="text"
+              className="save-modal-filename-input"
+              value={filename}
+              onChange={handleFilenameChange}
+              disabled={saving}
+              data-testid="save-modal-filename-input"
+            />
+          </label>
+          {filenameError && (
+            <span className="save-modal-error" role="alert" data-testid="filename-validation-error">
+              {filenameError}
+            </span>
+          )}
+          {sizeError && (
+            <span className="save-modal-error" role="alert" data-testid="save-modal-size-error">
+              {sizeError}
+            </span>
+          )}
+
+          {saving && (
+            <span className="save-modal-progress" role="status" data-testid="save-progress-indicator">
+              Saving…
+            </span>
+          )}
+          {status === 'success' && toastMessage && (
+            <span className="save-modal-toast save-modal-toast--success" role="status" data-testid="success-toast">
+              {toastMessage}
+            </span>
+          )}
+          {status === 'error' && toastMessage && (
+            <span className="save-modal-toast save-modal-toast--error" role="alert" data-testid="error-toast">
+              {toastMessage}
+            </span>
+          )}
         </div>
 
-        <label className="save-modal-field">
-          <span className="save-modal-label">Filename</span>
-          <input
-            type="text"
-            className="save-modal-filename-input"
-            value={filename}
-            onChange={handleFilenameChange}
-            disabled={saving}
-            data-testid="save-modal-filename-input"
-          />
-        </label>
-        {filenameError && (
-          <span className="save-modal-error" role="alert" data-testid="filename-validation-error">
-            {filenameError}
-          </span>
-        )}
-        {sizeError && (
-          <span className="save-modal-error" role="alert" data-testid="save-modal-size-error">
-            {sizeError}
-          </span>
-        )}
-
-        {saving && (
-          <span className="save-modal-progress" role="status" data-testid="save-progress-indicator">
-            Saving…
-          </span>
-        )}
-        {status === 'success' && toastMessage && (
-          <span className="save-modal-toast save-modal-toast--success" role="status" data-testid="success-toast">
-            {toastMessage}
-          </span>
-        )}
-        {status === 'error' && toastMessage && (
-          <span className="save-modal-toast save-modal-toast--error" role="alert" data-testid="error-toast">
-            {toastMessage}
-          </span>
-        )}
-
-        <div className="modal-actions">
+        <div className="card-modal-buttons">
           <button
             type="button"
-            className="save-modal-cancel-button"
+            className="card-modal-button card-modal-button--secondary"
             onClick={handleCloseOrCancel}
             disabled={saving}
             data-testid="save-modal-cancel-button"
@@ -195,7 +185,7 @@ export default function SaveModal({ open, attachmentId, originalFilename, onClos
           </button>
           <button
             type="button"
-            className="save-modal-confirm-button"
+            className="card-modal-button card-modal-button--primary save-modal-confirm-button"
             onClick={handleConfirm}
             disabled={saving || Boolean(filenameError)}
             data-testid="save-modal-confirm-button"
@@ -203,6 +193,18 @@ export default function SaveModal({ open, attachmentId, originalFilename, onClos
             Save
           </button>
         </div>
+        <button
+          type="button"
+          className="card-modal-exit"
+          aria-label="Close"
+          onClick={handleCloseOrCancel}
+          disabled={saving}
+          data-testid="save-modal-close-button"
+        >
+          <svg height="20px" viewBox="0 0 384 512" aria-hidden="true">
+            <path d="M342.6 150.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0L192 210.7 86.6 105.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3L146.7 256 41.4 361.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0L192 301.3 297.4 406.6c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L237.3 256 342.6 150.6z" />
+          </svg>
+        </button>
       </div>
     </div>
   );

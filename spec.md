@@ -49,6 +49,18 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   scroll/wheel is enough (V6); "Fit width" computes scale from the first page's native width
   vs. the viewer's current clientWidth and goes through the same zoom pipeline (clamped to
   50%–300%, same scroll-restore behavior) rather than being a separate layout mode (V7).
+- **Viewer layout (implemented):** the zoom control (Fit width, −, level, +) is a small, muted bar in its
+  own row *above* the document, right-aligned (`PDFViewer.tsx`'s `.pdf-viewer-column` wraps the zoom bar
+  and the scrolling `.pdf-viewer`), not an overlay inside the scroll area — previously it scrolled with
+  the content and ended up on top of the page when zoomed in.
+- **HiDPI rendering (implemented):** page and thumbnail canvases are backed by device pixels
+  (`window.devicePixelRatio`, capped at 3; `PDFViewer.tsx`, `ThumbnailPanel.tsx`) and sized in CSS pixels
+  via `canvas.style.width/height`, so they stay sharp on Retina screens. `AnnotationCanvas.jsx` therefore
+  sizes its Fabric canvas from the PDF canvas's CSS size (`style.width/height`), not its bitmap
+  `width/height`, so annotations still line up with the page.
+- **Read-only preview (`/view/:id`):** PDF, thumbnails and page navigation only, with a "← Workspace"
+  link and the file name. The preview's "Edit" link was removed; the workspace's Recent list now links
+  straight to the editor (`/edit/:id`, `RecentSection.tsx`).
 - No print, search, or any pdf.js default control beyond V1–V7 (V8). Confirmed structurally, not by
   hiding/disabling anything after the fact: the viewer only imports pdf.js's core rendering API
   (`getDocument`, `page.render` onto a raw `<canvas>`) — it never imports `pdfjs-dist/web/pdf_viewer`
@@ -67,30 +79,50 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   position matching the on-screen position at any zoom level (Risk R1, A1). Per-page state is preserved
   (serialize via `toJSON`/`dispose` before teardown, `loadFromJSON` after reattaching) so annotations
   survive PDFViewer's destructive re-render on every zoom/pan/fit-width/document change.
-- Toolbar, fixed left-to-right order: Pen (default) / Freeform highlighter → Text (default) / Text
-  highlighter → Ellipse (default) / Rectangle / Line / Arrow (one-sided) → Cloud → Polygon → Signature
-  (upload image) (A1). All 11 are individually visible buttons, not collapsed into group dropdowns —
+- Toolbar, fixed left-to-right order: Hand → Pen (default) / Freeform highlighter → Text → Ellipse (default) / Rectangle / Line / Arrow (one-sided) → Cloud → Signature
+  (upload image) (A1). All 10 are individually visible buttons, not collapsed into group dropdowns —
   "(default)" only marks which tool is initially active (Pen, on mount) and which shape tool is
   active if the user hasn't picked a different one; each tool still gets its own always-visible icon
-  button (`Toolbar.jsx` + `toolbarIcons.tsx`, inline SVG, no icon-library dependency).
+  button (`Toolbar.jsx` + `toolbarIcons.tsx`, inline SVG, no icon-library dependency). **Hand (implemented)**
+  is a 12th button at the far left (`tool-hand`): it draws nothing and only lets the user select, move
+  and resize existing annotations (the overlay takes pointer input only when the press lands on an
+  annotation, so dragging empty page area still pans the viewer). It has no style popover. Pen is still
+  the tool active on mount.
+- **Toolbar header (implemented):** a larger bar (more padding, 2.75rem tool buttons) with the file
+  *name* only on the left (no id, no "Attachment:" prefix; truncated with an ellipsis and full name on
+  hover, so every tool stays visible without scrolling), then the tools, Download and Save, and a round
+  "×" **Back** button (`back-button`) at the far right. Back always opens a confirmation modal (card
+  variant, title "Go back?", body "Are you sure you want to go back? All unsaved changes will be lost.",
+  confirm "Go back") and confirming navigates to `/workspace`; there is no dirty-state tracking, so it
+  prompts even with no edits, and closing the tab or the browser's Back bypasses it.
+- **After drawing, the toolbar returns to Hand (implemented):** finishing a creation gesture selects the
+  new annotation and calls `onObjectCreated`, which `ViewerPage.jsx` wires to `setActiveTool('hand')`, so
+  the next drag moves/resizes it instead of starting another shape.
 - All line-based marks render solid only (A2); opacity fixed at 100%, not configurable (A3).
-- **One global style (A4, implemented)** — color (default red `#dc2626`), fill (default transparent),
-  stroke width (default 4pt) — `StyleControls.tsx` (color `<input type="color">`, fill checkbox, stroke
-  width number input), rendered in `Toolbar.jsx`, state owned one level up in `ViewerPage.jsx`
-  (`const [style, setStyle] = useState(DEFAULT_ANNOTATION_STYLE)`, passed to both `Toolbar.jsx` and
-  `AnnotationCanvas.jsx`) — one shared style object for every tool, not per-tool, not per-object. Every
+- **Per-tool style (A4, revised, implemented)** — each annotation tool has its own color (default red
+  `#dc2626`) and stroke width (default 4pt); there is **no fill option** (closed shapes are always
+  outline-only). `ViewerPage.jsx` keeps a map (`stylesByTool`) and passes the active tool's style (falling
+  back to `DEFAULT_ANNOTATION_STYLE`) to `Toolbar.jsx` and `AnnotationCanvas.jsx`, so switching tools
+  never overrides another tool's configuration. The controls (`StyleControls.tsx`) render in a
+  tooltip-style **popover under the selected tool's button** (`.toolbar-style-popover`), which stays open
+  until another tool is chosen (none for Hand). Text shows color only (no stroke).
+  The color control is a custom `ColorPicker.tsx` (rounded swatch; panel with a saturation/brightness
+  area, hue slider, and small, rounded Hex / R,G,B / H,S,L fields; closes on outside click or Escape)
+  instead of `<input type="color">`, whose native popup can't be styled; it still emits `#rrggbb`. Every
   tool's creation path (free-drawing brush color/width, `BOUNDS_SHAPE_TOOLS`'s `create`/`resize`,
   `buildArrowPath`/`buildLineOrArrow`/`buildCloudShape`, `placeTextbox`) reads `style.color`/
-  `style.filled`/`style.strokeWidth` instead of the old hardcoded `BASE_STROKE_COLOR`/`BASE_STROKE_WIDTH`
+  `style.strokeWidth` instead of the old hardcoded `BASE_STROKE_COLOR`/`BASE_STROKE_WIDTH`
   constants (removed) — changing a control affects annotations placed *after* the change, not ones
   already on the canvas, **unless** one of them is currently selected, in which case it also restyles
-  live (see below). `HIGHLIGHTER_OPACITY` (0.35) is the one hardcoded exception, kept as a constant
+  live (see below) — but only for a style edit within the same tool: a tool switch swaps `style` without
+  the user editing it, so that restyle effect skips it (`styledToolRef`) and never repaints the selection.
+  `HIGHLIGHTER_OPACITY` (0.35) is the one hardcoded exception, kept as a constant
   rather than folded into `style` — per A3, it's a fixed property of the Freeform/Text Highlighter tools
-  themselves, never a user-facing control, so it has no business being part of the *shared* style.
+  themselves, never a user-facing control, so it has no business being part of the style.
   Every created object is tagged with which tool made it (`object.set('annotationTool', toolId)`, via a
   `tag()` helper called at the end of every creation path) — this is what lets the "unless re-selected"
   behavior interpret `style` correctly for an arbitrary already-placed object (e.g. text's color lives in
-  `fill`, a line's in `stroke`, a rectangle's fill only applies when `style.filled`) without re-deriving
+  `fill`, a line's in `stroke`, closed shapes always keep `fill: null`) without re-deriving
   the object's type from its current paint. The tag is included in `canvas.toJSON()`'s
   `propertiesToInclude` (`['annotationTool']`) in both `handlePagesReset` and `handlePageRendered`'s
   existing-canvas branch, so it survives `PDFViewer.tsx`'s serialize/dispose/reload cycle on every
@@ -105,9 +137,7 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   "tool changed mid-stroke" case — a style change made mid-drag (e.g. via keyboard focus on the
   stroke-width input while the mouse is still held down) can't retroactively alter a shape already being
   drawn. The arrow's head is sized proportional to `style.strokeWidth` (`arrowheadSize`) rather than a
-  fixed constant, and is always filled solid with `style.color` regardless of `style.filled` — that
-  toggle is about closed shapes having an optional interior fill, not about whether an arrow *looks* like
-  an arrow, which requires a filled head unconditionally.
+  fixed constant, and is always filled solid with `style.color`, since an arrow requires a filled head.
 - **Pen and Freeform Highlighter (A2, A3, implemented)**: `activeTool` is lifted from `Toolbar.jsx` up to
   `ViewerPage.jsx` (owns the state) and passed to both `Toolbar.jsx` (controlled) and
   `AnnotationCanvas.jsx`. `AnnotationCanvas.jsx`'s `FREE_DRAWING_OPACITY` map (keys = free-drawing tool
@@ -162,7 +192,7 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   `savedStateRef` and `loadFromJSON`'d back permanently on the very next zoom-triggered rebuild, with no
   way to remove it until 2.14's delete tooling exists) and on every tool-switch (otherwise a stray
   editing cursor stays live until the next canvas click).
-- **Text Highlighter, Rectangle, Ellipse, Cloud (A1/A2/A4/A7, implemented)**: all four drag out a
+- **Rectangle, Ellipse, Cloud (A1/A2/A4/A7, implemented)**: all three drag out a
   bounding box rather than clicking or freehand-drawing. `AnnotationCanvas.jsx`'s `BOUNDS_SHAPE_TOOLS`
   config map (one entry per tool: how to create the shape at zero size, how to resize it to a given box)
   drives one shared mechanism (`startBoundsDrag`/`updateBoundsDrag`/`finishBoundsDrag`, tracking
@@ -181,12 +211,14 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   `opacity: HIGHLIGHTER_OPACITY` property (not baked into the fill color, so it stays a real property in
   the serialized state for burn-in later) — sharing the same opacity constant Freeform Highlighter uses
   (extracted so the two tools' visual treatment can't drift apart by accident). Rectangle, Ellipse, and
-  Cloud default to `fill: null` (A4's "fill default transparent" — an outline only, letting the page show
-  through) but fill with `style.color` when `style.filled` is true — one global color, not a second
-  independent fill color — plus `stroke: style.color`/`strokeWidth: style.strokeWidth`, no dash array
-  (A2: outlines render solid). Ellipse's own `.width`/`.height` are derived from `rx`/`ry` (confirmed
-  empirically, not something this file has to keep in sync manually) — its `resize` sets
-  `rx: width / 2, ry: height / 2`. Cloud (A7 — rectangle-based, wavy border, positioned right after the
+  Cloud are always `fill: null` (outline only, letting the page show through; there is no fill option)
+  with `stroke: style.color`/`strokeWidth: style.strokeWidth`, no dash array
+  (A2: outlines render solid). Rectangle and Ellipse are created with `originX/originY: 'left'/'top'`
+  (Fabric 7 defaults to a center origin) so the press point stays one corner of the box, and their
+  `resize` subtracts the stroke width (painted half inside, half outside the geometry) so the outline's
+  outer edge lands on the cursor. Ellipse's `.width`/`.height` are derived from `rx`/`ry`, so its
+  `resize` sets `rx/ry = max(0, size − strokeWidth) / 2`. `mouse:up` also applies the release position
+  before finishing, since the last `mouse:move` can lag it. Cloud (A7 — rectangle-based, wavy border, positioned right after the
   shape tools in the toolbar) is a single `Path`: its perimeter is split into roughly `CLOUD_BUMP_SIZE`
   (20-PDF-point) chords per side — at least one per side, so a very small box still gets a real shape
   rather than a degenerate zero-length one — connected by outward-bowed circular arcs (`A` commands)
@@ -229,47 +261,9 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   *after* the PDF canvas inside `.pdf-viewer-page` instead of overlaying it — found and fixed while
   implementing 2.4, but it was latent since 2.2 (nothing before 2.4 ever made the overlay visibly
   interactive enough to notice).
-- **Polygon (A1, implemented)**: click to place each vertex, close by clicking back on the first one —
-  neither free-drawing, a single click, nor a drag between two fixed points, so it's the first tool
-  whose gesture spans more than one `mouse:down` and gets its own tracking (`canvas.__polygonDrag`:
-  `vertices` (in scene/PDF-point space), the in-progress preview object, and the `style` captured at the
-  *first* click — kept fixed for the whole gesture, same reasoning as Line/Arrow and the bounds-drag
-  tools' drag-start style capture, so a style change picked mid-construction can't retroactively repaint
-  segments already placed). Every click after the first either adds a vertex or, if there are already at
-  least `MIN_POLYGON_VERTICES` (3) placed and the click lands within `CLOSE_POLYGON_SCREEN_PX` (10
-  screen pixels — deliberately larger than `MIN_DRAG_SIZE_SCREEN_PX`'s 4, since this is a deliberate
-  re-click on a specific existing point that needs to actually be clickable, not a jitter guard) of the
-  first vertex, closes the shape into a real Fabric `Polygon` (tagged `'polygon'`,
-  `fill`/`stroke`/`strokeWidth` from `style` exactly like Rectangle/Ellipse/Cloud) — unless the resulting
-  shape's own bounding box is smaller than `MIN_DRAG_SIZE_SCREEN_PX` in screen pixels (a handful of
-  near-identical rapid clicks, e.g. someone double/triple-clicking while unsure how the tool works), in
-  which case it's discarded instead of kept as a permanent, essentially invisible stray shape — same
-  reasoning as `finishBoundsDrag`/`finishLineDrag`'s size guard, and especially important here since
-  there's no delete tool yet (A5/A6 land in 2.13/2.14) to remove one otherwise. The closing-distance
-  check is done in *scene* space, converted to screen pixels via `canvas.getZoom()` at comparison time —
-  same as every other size/distance check in this file — rather than diffing the two clicks' raw
-  `clientX`/`clientY` directly: found by code review that the raw-client-diff version only holds if the
-  canvas element hasn't moved on screen between the two `mouse:down` events, which breaks if the page
-  scrolls mid-construction (an entirely ordinary interaction for a page taller than the viewport) even
-  though it happens to work at a fixed scroll position — fixed and covered by a regression test that
-  changes the stubbed bounding rect between two `mouse:down` calls to simulate a scroll. Closing early
-  (fewer than 3 vertices) is simply treated as placing another vertex near the first one, not as a no-op
-  or an error. The in-progress state is a `Polyline` — vertices
-  placed so far, plus (while the mouse is moving) a rubber-band segment to the current pointer position —
-  rebuilt from scratch on every `mouse:move`/vertex-add rather than mutated in place (same rebuild-each-
-  move approach as Line/Arrow), always unfilled regardless of `style.filled`: unlike Rectangle/Cloud's
-  in-progress drag (already the one real shape being resized), an open Polyline isn't a closed polygon
-  yet, so previewing a fill would show something that doesn't exist until the shape actually closes.
-  Every click after the first bypasses the usual "don't start on top of an existing object"
-  (`!event.target`) guard every other tool's *first* click respects — once a polygon is already under
-  construction, a continuation click landing on top of an unrelated existing annotation is still meant
-  for the polygon being built, not for that other object. Switching tools away from an in-progress
-  polygon, or a page reset (zoom/pan) landing mid-construction, discards the incomplete preview
-  (`cancelPolygonInProgress`, folded together with the pre-existing `exitActiveEditing` call into one
-  `cancelPendingGestures` helper used at all three call sites: the tool-switch effect, `handlePagesReset`,
-  and `handlePageRendered`'s existing-canvas branch) rather than leaving it on the canvas — otherwise
-  (same bug class 2.5 already fixed for an empty Textbox surviving a reset) an untagged, half-built
-  `Polyline` would get serialized into `savedStateRef` and reloaded back permanently on the next rescale.
+- **Polygon (removed)**: the Polygon tool was dropped from the toolbar and the canvas. Server-side burn-in still
+  draws `'polygon'` objects so any annotations saved earlier keep rendering.
+  `cancelPendingGestures` now only wraps `exitActiveEditing`.
 - Any placed annotation: select → move, resize, or delete (A5). Selection/move/resize (A5) is Fabric's
   own default object interactivity for every tool except Pen/Freeform Highlighter — those two put the
   canvas in `isDrawingMode`, which skips Fabric's target hit-testing on `mousedown` entirely (by design,
@@ -306,9 +300,10 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   imperative-handle method, `deleteActiveObject()`, which re-finds the selected annotation at call time
   (not whatever was selected when Delete was first pressed, since confirming happens via a separate,
   later click) and removes it from its canvas; cancelling just closes the modal, leaving the annotation
-  untouched (matches the "Cancel during delete confirmation" edge case in §5).
+  untouched (matches the "Cancel during delete confirmation" edge case in §5). The modal uses
+  `ConfirmModal.jsx`'s `card` variant with a "Delete" confirm label; title/body copy is unchanged.
 - Cloud: rectangle-based, wavy border, positioned right after the shape tools (A7).
-- Signature: positioned after Polygon, signature icon, image upload placed on the page at a default
+- Signature: positioned after Cloud, signature icon, image upload placed on the page at a default
   size the user can move/resize; validated (type + size) and re-encoded server-side, not stored/served
   as the raw upload (A8, R8).
 - No annotation capability beyond A1–A8 for edit users — no notes tool, no cover pages, nothing
@@ -372,7 +367,7 @@ only in the browser — a hidden UI button is a UX nicety, not a security contro
   own comment — and unit-tested in `tests/annotationGeometry.test.ts` independent of whether `pdf-lib`
   happens to be installed) derives each object's current bounding box from `left`/`top`/`width`/`height`/
   `scaleX`/`scaleY`/`originX`/`originY` exactly as Fabric itself interprets them — **including** the
-  documented Rectangle/Ellipse/Text-Highlighter center-origin offset (§9) — so a burned annotation matches
+  documented Rectangle/Ellipse center-origin offset (§9) — so a burned annotation matches
   whatever is actually on screen, bug and all, rather than silently "correcting" a separately-tracked,
   separately-scoped issue. Line/Path (Arrow, Cloud, pen/highlighter strokes)/Polygon additionally re-derive
   their current on-canvas position from their *raw*, creation-time point data (which Fabric never rewrites
@@ -601,7 +596,7 @@ Demonstrable on a real attachment, by someone other than the builder:
 
 1. PDF opens with a loader; thumbnails visible by default; working scroll, zoom, pan, fit-width, and
    page navigation (current page, prev/next, type-to-jump). — **§3.1**
-2. A user places at least one annotation from every tool category, using the single global style, and
+2. A user places at least one annotation from every tool category, using each tool's own style (color, width), and
    can move/resize/delete any of them (delete gated by the exact-text confirmation modal). — **§3.2**
 3. Download produces the original filename with annotations burned in. — **§3.3**
 4. Save opens the rename dialog pre-filled per F1–F3, validates against F4–F6, shows progress with
@@ -632,7 +627,7 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
 | Phase | Status |
 |---|---|
 | 1 — Viewer (V1–V8) | Done (1.1–1.10): render/scroll/loading/thumbnails, page navigator, zoom in/out, pan, fit-width, confirmed absence of default pdf.js print/search UI, and component tests for `PDFViewer`/`PageNavigator`. |
-| 2 — Annotation tools (A1–A9) | Done (2.1–2.14; 2.15's tests land alongside): Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). Pen/Freeform Highlighter (2.4/2.6), Text (2.5), Text Highlighter (2.7), Rectangle/Ellipse (2.8), Line/Arrow (2.8), Cloud (2.9), the global style control (`StyleControls.tsx`, 2.10), Polygon (2.11), Signature (2.12), select/move/resize (2.13, A5), and the delete-confirmation modal (2.14, A6) are implemented. Signature (`SignatureUploader.tsx`): validates type/size client-side, re-encodes the upload through an offscreen `<canvas>` before placing it (A8/R8's client-side half — the *authoritative* server-side re-check/re-encode is task 5.3/5.6, done: see §10), and places it via `AnnotationCanvas.jsx`'s `addSignatureImage` at a default width (clamped to the page's own width) on whichever page is currently on screen. Select/move/resize (2.13): see §3.2's A5 note for the Pen/Freeform Highlighter fix this required. Delete (2.14): see §3.2's A6 note. |
+| 2 — Annotation tools (A1–A9) | Done (2.1–2.14; 2.15's tests land alongside): Fabric.js installed (2.1); `AnnotationCanvas.jsx` layers a per-page Fabric canvas normalized to PDF-point space, coordinated with `PDFViewer.tsx`'s destructive re-renders (2.2). Pen/Freeform Highlighter (2.4/2.6), Text (2.5), Text Highlighter (2.7), Rectangle/Ellipse (2.8), Line/Arrow (2.8), Cloud (2.9), the per-tool style popover (`StyleControls.tsx` + `ColorPicker.tsx`, 2.10; revised: per-tool color/width, no fill), Polygon (2.11), Signature (2.12), select/move/resize (2.13, A5), and the delete-confirmation modal (2.14, A6) are implemented. Signature (`SignatureUploader.tsx`): validates type/size client-side, re-encodes the upload through an offscreen `<canvas>` before placing it (A8/R8's client-side half — the *authoritative* server-side re-check/re-encode is task 5.3/5.6, done: see §10), and places it via `AnnotationCanvas.jsx`'s `addSignatureImage` at a default width (clamped to the page's own width) on whichever page is currently on screen. Select/move/resize (2.13): see §3.2's A5 note for the Pen/Freeform Highlighter fix this required. Delete (2.14): see §3.2's A6 note. |
 | 3 — Download & Save (D1–D3, S1–S8, F1–F6) | Implemented (3.1–3.11): burn-in (`server/services/burn-in.ts` + `annotationGeometry.ts`), save-as-new-attachment (`server/services/storage.ts`'s `saveAttachment`/`downloadAttachmentBytes`), `src/utils/filenameUtils.ts` (F1–F6, shared client/server), `SaveModal.tsx`, and the Download/Save toolbar wiring in `ViewerPage.jsx`/`Toolbar.jsx`. **Blocked on dependency install:** `pdf-lib` could not actually be installed in the session that wrote this — the sandboxed environment's network access to `registry.npmjs.org` timed out, and redirecting to the Autodesk Artifactory mirror was itself blocked by the harness's own policy. `server/services/burn-in.ts` and `storage.ts` are written against `pdf-lib`'s documented API but have never actually been run — `npm run typecheck` currently fails on exactly those two files' `pdf-lib` import (nothing else). **Action needed:** run `npm install pdf-lib` in an environment with real registry access, then re-run `npm run typecheck` and `npm test` (particularly exercise a real Download/Save against a real attachment) before treating burn-in as verified rather than reviewed-but-unrun. The coordinate math those two files depend on (`annotationGeometry.ts`) has no such dependency and *is* unit-tested (`tests/annotationGeometry.test.ts`). |
 | 4 — Permissions (single-owner) | **Superseded, see §4.** The original email-based sharing implementation (P1–P5, `shares` table, `ShareModal.tsx`, edit/view roles) was fully built and tested in an earlier session, then cut entirely in `tasks/tasks-accounts-workspace.md` task 7.0 per that PRD's §3.4/WF5 revision. Current state: `server/middleware/permissions.ts`'s `canRead`/`canWrite`/`canBurnIn`/`isOwner` are all owner-only; every attachment/burn-in route is gated by `requirePermission` against real `requireAuth` identity (`req.userId`, a verified Supabase JWT — not the old `x-user-id` stub); `NoAccessState.tsx` still covers the no-permission/dead-link empty state via `usePdfDocument.ts`'s `accessDenied`. `supabase/migrations/20260929150000_drop_shares.sql` dropped the `shares` table and `share_role` enum (`npm run supabase:migrate` succeeded: `"message":"Finished supabase db push."`); `src/lib/database.types.ts` was regenerated and no longer mentions either. `tests/permissions.test.ts`/`tests/permissions.api.test.ts` keep owner-vs-stranger real-HTTP/unit coverage; the attachments/burn-in half of `permissions.api.test.ts` still self-skips pending the `pdf-lib` install (see Phase 3's row and §9) — unrelated to the sharing cut. |
 | 5 — Hardening | Done (5.1–5.7, see §10). All items closed except the pre-existing `pdf-lib`-install blocker (§9), which is outside this task's scope to fix. |
@@ -756,11 +751,11 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   `embedPng`/`drawSvgPath`/font-embedding calls, so it would not catch a bug specific to those. Re-verify
   end-to-end (a real Download against a real multi-annotation attachment at multiple zoom levels) once
   `pdf-lib` is installed, per the next Known Gap.
-- **Rectangle/Ellipse/Text Highlighter render offset from the dragged box** (found while implementing
+- **Rectangle/Ellipse render offset from the dragged box** (found while implementing
   2.12, pre-existing since 2.7/2.8, not fixed here — out of scope for 2.12's diff): Fabric's object
   default is `originX`/`originY: 'center'` in the installed version (`fabric@7.4.0`), so `left`/`top`
   mean an object's *center*, not its top-left corner, unless overridden. `BOUNDS_SHAPE_TOOLS`'s
-  `rectangle`/`ellipse`/`text-highlighter` entries in `AnnotationCanvas.jsx` set `left`/`top` to the
+  `rectangle`/`ellipse` entries in `AnnotationCanvas.jsx` set `left`/`top` to the
   drag box's top-left corner on every resize without overriding origin, so the rendered shape is
   actually centered on that point — offset up-and-left from the real drag box by half its own
   width/height (confirmed via `getBoundingRect()`; e.g. a 100×60pt drag from (10,10) renders at
@@ -787,7 +782,7 @@ Tracked in detail in `tasks/tasks-pdf-editor.md`. Snapshot:
   comments about Fabric's own unrelated object-rotate handle and toolbar *button* ordering, not a page-level
   feature. Pinned with a regression test (`tests/Toolbar.test.tsx`, "the edit toolbar exposes exactly the 11
   required tools, in A1's required order, and nothing out-of-scope") asserting the toolbar's exact button
-  set/order and that only one global style control exists.
+  set/order (now Hand + 11 tools; the style control is a single popover for the active tool, not a per-annotation one).
 - **5.3/5.6 (size limits + server-side signature re-encoding):** signature images were already re-encoded
   client-side (`SignatureUploader.tsx`'s offscreen `<canvas>.toDataURL()`, task 2.12) but had no
   server-side re-check — a caller hitting the burn-in endpoint directly could send an arbitrary `image`

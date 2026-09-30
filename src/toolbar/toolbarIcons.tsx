@@ -21,6 +21,17 @@ function IconBase(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function HandIcon() {
+  return (
+    <IconBase>
+      <path d="M8 13V5.5a1.5 1.5 0 013 0V11" />
+      <path d="M11 10.5V4a1.5 1.5 0 013 0v6.5" />
+      <path d="M14 10.5V5.5a1.5 1.5 0 013 0V13" />
+      <path d="M17 9.5a1.5 1.5 0 013 0V15a6 6 0 01-6 6h-1.5a6 6 0 01-4.6-2.1L4.5 15a1.5 1.5 0 012.3-1.9L8 14.5" />
+    </IconBase>
+  );
+}
+
 export function PenIcon() {
   return (
     <IconBase>
@@ -44,16 +55,6 @@ export function TextIcon() {
     <IconBase>
       <path d="M5 5h14" />
       <path d="M12 5v14" />
-    </IconBase>
-  );
-}
-
-export function TextHighlighterIcon() {
-  return (
-    <IconBase>
-      <path d="M6 6h12" />
-      <path d="M6 12h12" />
-      <path d="M4.5 17h10" strokeWidth="4" stroke="currentColor" opacity="0.35" />
     </IconBase>
   );
 }
@@ -101,18 +102,35 @@ export function CloudIcon() {
   );
 }
 
-export function PolygonIcon() {
+export function SignatureIcon() {
   return (
     <IconBase>
-      <path d="M12 4l7 5-2.7 8H7.7L5 9z" />
+      <path d="M7.5 2.5h7l5 5v11a3 3 0 01-3 3h-9a3 3 0 01-3-3v-13a3 3 0 013-3z" />
+      <path d="M14.5 2.5V6a2 2 0 002 2h3" />
+      <path d="M12 15v-4.5M9.5 12.5L12 10l2.5 2.5" />
+      <path d="M8.5 16.5V19h7v-2.5" />
     </IconBase>
   );
 }
 
-export function SignatureIcon() {
+// Solid floppy-disk glyph (unlike the line icons above, filled) — the notch,
+// shutter, and label are even-odd cutouts/inlays in a single path.
+export function SaveIcon() {
+  return (
+    <IconBase fill="currentColor" stroke="none">
+      <path
+        fillRule="evenodd"
+        d="M5 3h13.7L21 5.3V19a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2zM9 3h8.3v5.9H9zM14.2 3.7h2v4.8h-2zM6.7 13h10.8v6.3H6.7z"
+      />
+    </IconBase>
+  );
+}
+
+export function DownloadIcon() {
   return (
     <IconBase>
-      <path d="M4 17c2-1 3-3 3.5-5 .5-2-.2-3.5-1.5-3-1.3.5-1 3 1 4.5 2.3 1.7 5-.5 6-2.5.7-1.4 1.7-1.4 2 0 .3 1.4 1.7 2.4 4 1" />
+      <path d="M12 3v12M7 10.5l5 4.5 5-4.5" />
+      <path d="M4 15v1.5A2.5 2.5 0 006.5 19h11a2.5 2.5 0 002.5-2.5V15" />
     </IconBase>
   );
 }

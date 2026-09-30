@@ -162,6 +162,26 @@ function wrapTextToWidth(text: string, font: PDFFont, fontSize: number, maxWidth
   return lines;
 }
 
+type FontFamilyKey = 'helvetica' | 'times' | 'courier';
+
+// Canvas `fontFamily` values the Text tool offers (StyleControls.tsx
+// FONT_OPTIONS) → the PDF standard font that stands in for them. Anything
+// else (e.g. a missing fontFamily) falls back to Helvetica.
+function fontFamilyKey(fontFamily: string | undefined): FontFamilyKey {
+  const name = (fontFamily ?? '').toLowerCase();
+  if (name.includes('times')) return 'times';
+  if (name.includes('courier')) return 'courier';
+  return 'helvetica';
+}
+
+const STANDARD_FONTS: Record<FontFamilyKey, StandardFonts> = {
+  helvetica: StandardFonts.Helvetica,
+  times: StandardFonts.TimesRoman,
+  courier: StandardFonts.Courier,
+};
+
+type FontResolver = (fontFamily: string | undefined) => PDFFont;
+
 function drawTextbox(page: PDFPage, pageHeight: number, object: AnnotationObjectJson, font: PDFFont): void {
   const box = boundingBoxTopLeft(object);
   const fontSize = (object.fontSize ?? 16) * (object.scaleY ?? 1);
@@ -213,7 +233,7 @@ async function drawAnnotationObject(
   pdfDoc: PDFDocument,
   page: PDFPage,
   pageHeight: number,
-  font: PDFFont,
+  resolveFont: FontResolver,
   object: AnnotationObjectJson,
 ): Promise<void> {
   switch (object.type) {
@@ -235,7 +255,7 @@ async function drawAnnotationObject(
     case 'textbox':
     case 'i-text':
     case 'text':
-      drawTextbox(page, pageHeight, object, font);
+      drawTextbox(page, pageHeight, object, resolveFont(object.fontFamily));
       return;
     case 'image':
       await drawImageShape(pdfDoc, page, pageHeight, object);
@@ -255,7 +275,11 @@ async function drawAnnotationObject(
 export async function applyBurnIn({ attachmentId, pages }: BurnInParams): Promise<BurnInResult> {
   const { filename, bytes } = await downloadAttachmentBytes(attachmentId);
   const pdfDoc = await PDFDocument.load(bytes);
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const embedded = new Map<FontFamilyKey, PDFFont>();
+  for (const key of Object.keys(STANDARD_FONTS) as FontFamilyKey[]) {
+    embedded.set(key, await pdfDoc.embedFont(STANDARD_FONTS[key]));
+  }
+  const resolveFont: FontResolver = (fontFamily) => embedded.get(fontFamilyKey(fontFamily))!;
   const pageCount = pdfDoc.getPageCount();
 
   for (const { pageNumber, objects } of pages) {
@@ -267,7 +291,7 @@ export async function applyBurnIn({ attachmentId, pages }: BurnInParams): Promis
     const page = pdfDoc.getPage(pageNumber - 1);
     const pageHeight = page.getHeight();
     for (const object of objects) {
-      await drawAnnotationObject(pdfDoc, page, pageHeight, font, object);
+      await drawAnnotationObject(pdfDoc, page, pageHeight, resolveFont, object);
     }
   }
 

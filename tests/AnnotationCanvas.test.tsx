@@ -266,8 +266,7 @@ test('the pen tool puts the canvas into free-drawing mode with the default red 4
   assert.equal(canvas.upperCanvasEl.style.pointerEvents, 'auto');
 
   // 'signature' isn't implemented yet and isn't click-to-place either, so
-  // it's a genuinely non-interactive tool for this assertion ('polygon' no
-  // longer is, as of 2.11).
+  // it's a genuinely non-interactive tool for this assertion.
   rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="signature" />);
 
   assert.equal(canvas.isDrawingMode, false, 'switching away from pen must turn drawing mode off');
@@ -404,6 +403,25 @@ test('the text tool places an empty, editable Textbox at the clicked point in ca
   assert.equal(textbox.isEditing, true, 'drops the user straight into editing it');
 });
 
+test('the text tool places the textbox in the style\'s font family', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(
+    <AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={{ ...DEFAULT_ANNOTATION_STYLE, fontFamily: 'Courier New', fontSize: 30 }} activeTool="text" />,
+  );
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 120, clientY: 90 }, target: null });
+  const textbox = canvas.getObjects()[0];
+  assert.equal(textbox.fontFamily, 'Courier New');
+  assert.equal(textbox.fontSize, 30);
+  canvas.getObjects()[0].exitEditing();
+});
+
 test('clicking an existing object with the text tool active does not place a new text box on top of it', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
@@ -459,72 +477,10 @@ test('a text box with typed content survives exiting editing', async () => {
   assert.equal(canvas.getObjects().length, 1, 'a text box the user actually typed into must be kept');
 });
 
-test('the text highlighter drags out a filled, semi-transparent rectangle with no stroke', async () => {
-  const ref = createRef<any>();
-  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="text-highlighter" />);
-
-  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
-  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
-  const canvas = ref.current.getCanvas(1);
-  stubBoundingClientRect(canvas, 600, 800);
-
-  assert.equal(canvas.upperCanvasEl.style.pointerEvents, 'auto', 'drag-to-place needs pointer input too');
-  assert.equal(canvas.selection, false, "Fabric's own marquee-select must not compete with the drag");
-
-  canvas.fire('mouse:down', { e: { clientX: 50, clientY: 200 }, target: null });
-  canvas.fire('mouse:move', { e: { clientX: 250, clientY: 150 } });
-  canvas.fire('mouse:up', {});
-
-  assert.equal(canvas.getObjects().length, 1);
-  const highlight = canvas.getObjects()[0];
-  assert.equal(highlight.left, 50, 'normalized to the top-left corner regardless of drag direction');
-  assert.equal(highlight.top, 150);
-  assert.equal(highlight.width, 200);
-  assert.equal(highlight.height, 50);
-  assert.equal(highlight.fill, '#dc2626', 'same base color as the other tools, as a real fill, not baked-in alpha');
-  assert.equal(highlight.opacity, 0.35, 'transparency is a real opacity property, not baked into the fill color');
-  assert.equal(highlight.stroke, null, 'a highlight, not an outlined shape');
-});
-
-test('a text-highlighter drag too small to be a real highlight is discarded, not kept as a stray shape', async () => {
-  const ref = createRef<any>();
-  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="text-highlighter" />);
-
-  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
-  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
-  const canvas = ref.current.getCanvas(1);
-  stubBoundingClientRect(canvas, 600, 800);
-
-  canvas.fire('mouse:down', { e: { clientX: 50, clientY: 50 }, target: null });
-  canvas.fire('mouse:up', {});
-
-  assert.equal(canvas.getObjects().length, 0, 'a click with no real drag should not leave a shape behind');
-});
-
-test('a text-highlighter drag exactly at the minimum threshold is kept, not discarded', async () => {
-  const ref = createRef<any>();
-  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="text-highlighter" />);
-
-  const { wrapper, pdfCanvas } = makePageWrapper(600, 800); // 1x zoom
-  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
-  const canvas = ref.current.getCanvas(1);
-  stubBoundingClientRect(canvas, 600, 800);
-
-  // Exactly MIN_DRAG_SIZE_SCREEN_PX (4) in both dimensions at 1x zoom.
-  canvas.fire('mouse:down', { e: { clientX: 50, clientY: 50 }, target: null });
-  canvas.fire('mouse:move', { e: { clientX: 54, clientY: 54 } });
-  canvas.fire('mouse:up', {});
-
-  assert.equal(canvas.getObjects().length, 1, 'a drag exactly at the threshold must be kept, not discarded');
-});
-
 test('at low zoom, a single screen-pixel of jitter is still treated as an accidental click, not kept as a shape', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="text-highlighter" />);
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="rectangle" />);
 
   const { wrapper, pdfCanvas } = makePageWrapper(300, 400); // 0.5x of native 600x800
   await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
@@ -544,26 +500,6 @@ test('at low zoom, a single screen-pixel of jitter is still treated as an accide
     0,
     '1 screen pixel of jitter at low zoom must not leave a stray highlight',
   );
-});
-
-test('clicking an existing object with the text highlighter active does not start a new drag on top of it', async () => {
-  const ref = createRef<any>();
-  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="text-highlighter" />);
-
-  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
-  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
-  const canvas = ref.current.getCanvas(1);
-  stubBoundingClientRect(canvas, 600, 800);
-
-  const existing = new Rect({ left: 10, top: 10, width: 50, height: 50 });
-  canvas.add(existing);
-
-  canvas.fire('mouse:down', { e: { clientX: 30, clientY: 30 }, target: existing });
-  canvas.fire('mouse:move', { e: { clientX: 200, clientY: 200 } });
-  canvas.fire('mouse:up', {});
-
-  assert.equal(canvas.getObjects().length, 1, 'no highlight rectangle should have started');
 });
 
 test('an empty text box still mid-edit does not survive a page reset (e.g. the user zoomed instead of clicking away)', async () => {
@@ -631,10 +567,14 @@ test('the rectangle tool drags out an unfilled outline rectangle (A4: fill defau
 
   assert.equal(canvas.getObjects().length, 1);
   const rect = canvas.getObjects()[0];
+  // Top-left origin: the outline's outer edge sits exactly on the drag box (width excludes the 4pt stroke).
+  assert.equal(rect.originX, 'left');
   assert.equal(rect.left, 50, 'normalized to the top-left corner regardless of drag direction');
   assert.equal(rect.top, 150);
-  assert.equal(rect.width, 250);
-  assert.equal(rect.height, 200);
+  assert.equal(rect.width, 246);
+  assert.equal(rect.height, 196);
+  rect.setCoords();
+  assert.deepEqual(rect.getBoundingRect(),{ left: 50, top: 150, width: 250, height: 200 });
   assert.equal(rect.fill, null, 'A4: fill defaults to transparent');
   assert.equal(rect.stroke, '#dc2626');
   assert.equal(rect.strokeWidth, 4);
@@ -657,10 +597,11 @@ test('the ellipse tool drags out an unfilled outline ellipse sized to the drag b
 
   assert.equal(canvas.getObjects().length, 1);
   const ellipse = canvas.getObjects()[0];
-  assert.equal(ellipse.left, 50);
+  assert.equal(ellipse.originX, 'left');
+  assert.equal(ellipse.left, 50, 'press point stays the top-left corner of the box');
   assert.equal(ellipse.top, 100);
-  assert.equal(ellipse.rx, 100, 'half the drag width');
-  assert.equal(ellipse.ry, 50, 'half the drag height');
+  assert.equal(ellipse.rx, 98, 'half the drag width minus the stroke');
+  assert.equal(ellipse.ry, 48, 'half the drag height minus the stroke');
   assert.equal(ellipse.fill, null, 'A4: fill defaults to transparent');
   assert.equal(ellipse.stroke, '#dc2626');
 });
@@ -894,7 +835,7 @@ test('clicking an existing object with a shape tool active does not start a new 
   assert.equal(canvas.getObjects().length, 1, 'no new shape should have started on top of it');
 });
 
-const CUSTOM_STYLE = { color: '#2563eb', filled: true, strokeWidth: 10 };
+const CUSTOM_STYLE = { color: '#2563eb', strokeWidth: 10 };
 
 test('a custom global style is used for newly-created annotations, not the hardcoded defaults (2.10)', async () => {
   const ref = createRef<any>();
@@ -911,7 +852,7 @@ test('a custom global style is used for newly-created annotations, not the hardc
   assert.equal(stroke.strokeWidth, 10);
 });
 
-test('a filled rectangle drag with a custom style fills with the global color, not left transparent (A4)', async () => {
+test('a rectangle drag with a custom style strokes with the custom color and stays unfilled', async () => {
   const ref = createRef<any>();
   const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
   render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="rectangle" style={CUSTOM_STYLE} />);
@@ -926,7 +867,7 @@ test('a filled rectangle drag with a custom style fills with the global color, n
   canvas.fire('mouse:up', {});
 
   const rect = canvas.getObjects()[0];
-  assert.equal(rect.fill, '#2563eb', 'style.filled=true fills with the one global color, not a separate fill color');
+  assert.equal(rect.fill, null, 'closed shapes have no fill option');
   assert.equal(rect.stroke, '#2563eb');
   assert.equal(rect.strokeWidth, 10);
 });
@@ -977,7 +918,31 @@ test('changing the global style while an annotation is selected restyles it live
 
   assert.equal(rect.stroke, '#2563eb', 're-selecting an existing annotation and changing style must restyle it live');
   assert.equal(rect.strokeWidth, 10);
-  assert.equal(rect.fill, '#2563eb', 'style.filled also applies to the re-selected object');
+  assert.equal(rect.fill, null, 'restyling never fills a closed shape');
+});
+
+test('switching tools (which swaps in that tool\'s own style) does not restyle the selected annotation', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  const { rerender } = render(
+    <AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="rectangle" style={DEFAULT_ANNOTATION_STYLE} />,
+  );
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 50, clientY: 50 }, target: null });
+  canvas.fire('mouse:move', { e: { clientX: 250, clientY: 150 } });
+  canvas.fire('mouse:up', {});
+  const rect = canvas.getObjects()[0];
+  canvas.setActiveObject(rect);
+
+  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="line" style={CUSTOM_STYLE} />);
+
+  assert.equal(rect.stroke, DEFAULT_ANNOTATION_STYLE.color);
+  assert.equal(rect.strokeWidth, DEFAULT_ANNOTATION_STYLE.strokeWidth);
 });
 
 test('restyling a selected text annotation uses `fill`, not `stroke`', async () => {
@@ -1067,228 +1032,6 @@ test('changing the global style while a text box is empty and still mid-edit doe
   // alive indefinitely (node --test never exits, no other test in this file
   // leaves an object mid-edit at its end for the same reason).
   textbox.exitEditing();
-});
-
-test('the polygon tool places vertices on each click and closes into a real Polygon when clicking back on the first vertex', async () => {
-  const ref = createRef<any>();
-  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={DEFAULT_ANNOTATION_STYLE} />);
-
-  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
-  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
-  const canvas = ref.current.getCanvas(1);
-  stubBoundingClientRect(canvas, 600, 800);
-
-  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
-  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 100 }, target: null });
-  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 200 }, target: null });
-  // Close by clicking back near (not exactly on) the first vertex.
-  canvas.fire('mouse:down', { e: { clientX: 103, clientY: 98 }, target: null });
-
-  assert.equal(canvas.getObjects().length, 1, 'the in-progress preview must be gone, replaced by exactly one finished shape');
-  const polygon = canvas.getObjects()[0];
-  assert.equal(polygon.type, 'polygon');
-  assert.equal(polygon.points.length, 3, 'the closing click is not itself a 4th vertex');
-  assert.equal(polygon.points[0].x, 100);
-  assert.equal(polygon.points[0].y, 100);
-  assert.equal(polygon.points[1].x, 200);
-  assert.equal(polygon.points[2].y, 200);
-  assert.equal(polygon.stroke, '#dc2626');
-  assert.equal(polygon.strokeWidth, 4);
-  assert.equal(polygon.fill, null, 'A4: fill defaults to transparent');
-});
-
-test('a filled global style produces a filled closed polygon', async () => {
-  const ref = createRef<any>();
-  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(
-    <AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={CUSTOM_STYLE} />,
-  );
-
-  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
-  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
-  const canvas = ref.current.getCanvas(1);
-  stubBoundingClientRect(canvas, 600, 800);
-
-  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
-  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 100 }, target: null });
-  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 200 }, target: null });
-  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
-
-  const polygon = canvas.getObjects()[0];
-  assert.equal(polygon.fill, '#2563eb', 'style.filled=true fills with the global color, same as Rectangle/Ellipse/Cloud');
-  assert.equal(polygon.strokeWidth, 10);
-});
-
-test('clicking back on the first vertex with fewer than 3 vertices placed does not close the polygon — it adds a vertex instead', async () => {
-  const ref = createRef<any>();
-  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={DEFAULT_ANNOTATION_STYLE} />);
-
-  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
-  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
-  const canvas = ref.current.getCanvas(1);
-  stubBoundingClientRect(canvas, 600, 800);
-
-  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
-  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 100 }, target: null });
-  // Only 2 vertices exist — clicking back on the first is too early to close.
-  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
-
-  assert.equal(canvas.getObjects().length, 1, 'still just the in-progress preview, not a finished polygon');
-  const preview = canvas.getObjects()[0];
-  assert.equal(preview.annotationTool, undefined, 'the preview is not a real, tagged annotation yet');
-});
-
-test('clicking an existing object mid-construction still adds a vertex/closes, rather than being swallowed', async () => {
-  const ref = createRef<any>();
-  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={DEFAULT_ANNOTATION_STYLE} />);
-
-  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
-  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
-  const canvas = ref.current.getCanvas(1);
-  stubBoundingClientRect(canvas, 600, 800);
-
-  const existing = new Rect({ left: 10, top: 10, width: 500, height: 500 });
-  canvas.add(existing);
-
-  // The *starting* click still respects the usual "don't start on top of an
-  // existing object" guard, same as every other tool — it's only once a
-  // polygon is already in progress that later clicks bypass it.
-  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
-  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 100 }, target: existing });
-  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 200 }, target: existing });
-  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: existing });
-
-  const polygon = canvas.getObjects().find((o: any) => o.annotationTool === 'polygon');
-  assert.ok(polygon, 'the polygon must still get built despite continuation clicks landing on top of an existing object');
-  assert.equal(polygon.points.length, 3);
-});
-
-test('switching tools away from an in-progress polygon discards the incomplete preview', async () => {
-  const ref = createRef<any>();
-  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  const { rerender } = render(
-    <AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={DEFAULT_ANNOTATION_STYLE} />,
-  );
-
-  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
-  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
-  const canvas = ref.current.getCanvas(1);
-  stubBoundingClientRect(canvas, 600, 800);
-
-  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
-  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 100 }, target: null });
-  assert.equal(canvas.getObjects().length, 1, 'the in-progress preview exists');
-
-  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="pen" style={DEFAULT_ANNOTATION_STYLE} />);
-
-  assert.equal(canvas.getObjects().length, 0, 'switching tools mid-polygon must not strand the incomplete preview');
-});
-
-test('an in-progress polygon does not survive a page reset (regression, same bug class as an empty text box)', async () => {
-  const ref = createRef<any>();
-  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={DEFAULT_ANNOTATION_STYLE} />);
-
-  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
-  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
-  const canvas = ref.current.getCanvas(1);
-  stubBoundingClientRect(canvas, 600, 800);
-
-  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
-  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 100 }, target: null });
-  assert.equal(canvas.getObjects().length, 1);
-
-  ref.current.handlePagesReset();
-  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
-  const reloadedCanvas = ref.current.getCanvas(1);
-
-  assert.equal(reloadedCanvas.getObjects().length, 0, 'an incomplete polygon preview must not be serialized/reloaded back');
-});
-
-test('changing the global style while a polygon is being constructed does not retroactively restyle already-placed segments (drag-start capture)', async () => {
-  const ref = createRef<any>();
-  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  const { rerender } = render(
-    <AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={DEFAULT_ANNOTATION_STYLE} />,
-  );
-
-  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
-  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
-  const canvas = ref.current.getCanvas(1);
-  stubBoundingClientRect(canvas, 600, 800);
-
-  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
-  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 100 }, target: null });
-
-  rerender(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={CUSTOM_STYLE} />);
-
-  canvas.fire('mouse:down', { e: { clientX: 200, clientY: 200 }, target: null });
-  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
-
-  const polygon = canvas.getObjects()[0];
-  assert.equal(polygon.stroke, '#dc2626', 'the polygon started under the old style, so it must finish in that style, not one picked mid-construction');
-});
-
-test('closing the polygon still works correctly after the page scrolls mid-construction (regression)', async () => {
-  const ref = createRef<any>();
-  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={DEFAULT_ANNOTATION_STYLE} />);
-
-  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
-  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
-  const canvas = ref.current.getCanvas(1);
-  stubBoundingClientRect(canvas, 600, 800);
-
-  // Vertex 1, placed before any scroll.
-  canvas.fire('mouse:down', { e: { clientX: 150, clientY: 200 }, target: null });
-
-  // The page scrolls: the canvas element's on-screen position shifts (its
-  // bounding rect's `top` moves), so the same scene point now arrives at a
-  // different `clientY` than it would have before the scroll.
-  stubBoundingClientRect(canvas, 600, 800, 0, -300);
-
-  canvas.fire('mouse:down', { e: { clientX: 250, clientY: -200 }, target: null });
-  canvas.fire('mouse:down', { e: { clientX: 250, clientY: -100 }, target: null });
-
-  // Close by clicking the *same scene position* as vertex 1, expressed in
-  // the post-scroll client coordinate space (not vertex 1's own stale
-  // `clientX`/`clientY` from before the scroll).
-  canvas.fire('mouse:down', { e: { clientX: 150, clientY: -100 }, target: null });
-
-  const polygon = canvas.getObjects()[0];
-  assert.equal(
-    polygon.type,
-    'polygon',
-    'the polygon must still close correctly across a scroll, not silently add a 4th vertex instead',
-  );
-  assert.equal(polygon.points.length, 3);
-});
-
-test('rapid clicks that never move far from the first vertex do not create a stray degenerate polygon (regression)', async () => {
-  const ref = createRef<any>();
-  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
-  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} activeTool="polygon" style={DEFAULT_ANNOTATION_STYLE} />);
-
-  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
-  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
-  const canvas = ref.current.getCanvas(1);
-  stubBoundingClientRect(canvas, 600, 800);
-
-  // Four clicks, all within a couple of screen pixels of each other — e.g.
-  // a user double/triple-clicking while unsure how the tool works.
-  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
-  canvas.fire('mouse:down', { e: { clientX: 101, clientY: 100 }, target: null });
-  canvas.fire('mouse:down', { e: { clientX: 101, clientY: 101 }, target: null });
-  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
-
-  assert.equal(
-    canvas.getObjects().length,
-    0,
-    'a degenerate, essentially zero-size polygon must not be kept — there is no delete tool yet to remove it',
-  );
 });
 
 // Signature (2.12): unlike every tool above, placement is driven by an
@@ -1416,7 +1159,7 @@ test('addSignatureImage places onto the page currently most visible on screen, n
 // Selection/move/resize (2.13, requirement A5). Fabric's own default object
 // interactivity already provides click-to-select + drag-to-move + resize
 // handles for any non-drawing-mode tool (Text/Rectangle/Ellipse/Line/Arrow/
-// Cloud/Polygon/Text Highlighter all already respect a click landing on an
+// Cloud all already respect a click landing on an
 // existing object via the `if (event.target) return` guard in `mouse:down`,
 // above) — nothing new was needed for those. The real gap was Pen/Freeform
 // Highlighter: Fabric's `isDrawingMode` mousedown handling never calls its
@@ -1547,4 +1290,88 @@ test('starting a new stroke elsewhere clears a previously selected annotation\'s
   canvas.upperCanvasEl.dispatchEvent(new PointerEvent('pointerdown', { clientX: 500, clientY: 700, bubbles: true, button: 0 }));
 
   assert.equal(canvas.getActiveObject(), undefined, 'selection is cleared before the new stroke starts');
+});
+
+test('a finished rectangle drag selects the new shape and asks the toolbar to drop back to Hand', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  let created = 0;
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="rectangle" onObjectCreated={() => { created += 1; }} />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
+  canvas.fire('mouse:move', { e: { clientX: 200, clientY: 200 } });
+  canvas.fire('mouse:up', {});
+
+  assert.equal(canvas.getActiveObject(), canvas.getObjects()[0]);
+  assert.equal(created, 1);
+
+  // An accidental click too small to keep must not select anything or switch tools.
+  canvas.discardActiveObject();
+  canvas.fire('mouse:down', { e: { clientX: 300, clientY: 300 }, target: null });
+  canvas.fire('mouse:up', {});
+  assert.equal(created, 1);
+});
+
+test('the Hand tool lets the overlay take pointer input, allows selection, and never creates shapes', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="hand" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  assert.equal(canvas.upperCanvasEl.style.pointerEvents, 'auto');
+  assert.equal(canvas.selection, true);
+  assert.equal(canvas.isDrawingMode, false);
+
+  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
+  canvas.fire('mouse:move', { e: { clientX: 200, clientY: 200 } });
+  canvas.fire('mouse:up', {});
+  assert.equal(canvas.getObjects().length, 0);
+});
+
+test('a rectangle drawn with a fill style is filled with that color', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={{ ...DEFAULT_ANNOTATION_STYLE, fill: '#00ff00' }} activeTool="rectangle" />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
+  canvas.fire('mouse:move', { e: { clientX: 200, clientY: 200 } });
+  canvas.fire('mouse:up', {});
+
+  assert.equal(canvas.getObjects()[0].fill, '#00ff00');
+});
+
+test('annotations get a trash control that requests the delete confirmation', async () => {
+  const ref = createRef<any>();
+  const pdfDoc = fakePdfDoc(() => Promise.resolve(fakePage(1)));
+  let requested = 0;
+  render(<AnnotationCanvas ref={ref} attachmentId="a1" pdfDoc={pdfDoc} style={DEFAULT_ANNOTATION_STYLE} activeTool="rectangle" onRequestDelete={() => { requested += 1; }} />);
+
+  const { wrapper, pdfCanvas } = makePageWrapper(600, 800);
+  await ref.current.handlePageRendered(1, wrapper, pdfCanvas);
+  const canvas = ref.current.getCanvas(1);
+  stubBoundingClientRect(canvas, 600, 800);
+
+  canvas.fire('mouse:down', { e: { clientX: 100, clientY: 100 }, target: null });
+  canvas.fire('mouse:move', { e: { clientX: 200, clientY: 200 } });
+  canvas.fire('mouse:up', {});
+
+  const rect = canvas.getObjects()[0];
+  assert.ok(rect.controls.deleteControl, 'trash control is attached');
+  assert.equal(canvas.getActiveObject(), rect);
+  rect.controls.deleteControl.mouseUpHandler({}, {}, 0, 0);
+  assert.equal(requested, 1);
 });

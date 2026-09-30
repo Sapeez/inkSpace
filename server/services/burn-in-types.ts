@@ -27,6 +27,7 @@ export interface AnnotationObjectJson {
   path?: Array<Array<string | number>>;
   text?: string;
   fontSize?: number;
+  fontFamily?: string;
   lineHeight?: number;
   src?: string;
 }
