@@ -1,4 +1,4 @@
-# Brand You
+# inkSpace
 
 Web app (inkSpace) for viewing PDFs, annotating them on a canvas, burning the annotations into a new file, editing a document's pages, and managing a personal, owner-only workspace of attachments.
 
